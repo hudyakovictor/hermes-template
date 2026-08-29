@@ -38,11 +38,20 @@ const ICO = {
   check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12.5 4.5 4.5L19 7"/></svg>',
   x: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>',
   up: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V6M6 12l6-6 6 6"/></svg>',
-  plus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>',
+  plus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>',
   warn: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 3.5 2.5 20h19L12 3.5z"/><path d="M12 10v4.5" stroke-linecap="round"/><circle cx="12" cy="17.3" r="1" fill="currentColor" stroke="none"/></svg>',
   info: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 11v5" stroke-linecap="round"/><circle cx="12" cy="7.6" r="1" fill="currentColor" stroke="none"/></svg>',
 };
 const BIN_COLOR = { P1: "ok", P2: "acc", P3: "warn", P4: "err" };
+const ICOS = {
+  bolt: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M13.2 2 4.5 13.6h6L9.4 22l9.1-11.6h-6.2z"/></svg>',
+  chip: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="6.5" y="6.5" width="11" height="11" rx="2.5"/><rect x="10" y="10" width="4" height="4" rx="1"/><path d="M9.5 3.5v3M14.5 3.5v3M9.5 17.5v3M14.5 17.5v3M3.5 9.5h3M3.5 14.5h3M17.5 9.5h3M17.5 14.5h3" stroke-linecap="round"/></svg>',
+  battery: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="8" width="15.5" height="8.5" rx="2.5"/><path d="M21.2 11v2.6" stroke-linecap="round"/><path d="M6.5 10.7v3.4M10 10.7v3.4" stroke-width="2.2" stroke-linecap="round"/></svg>',
+  target: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="4.6"/><circle cx="12" cy="12" r="1.1" fill="currentColor" stroke="none"/></svg>',
+  flask: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M9.5 3h5M10.5 3v5.2L5.4 17a2.6 2.6 0 0 0 2.2 4h8.8a2.6 2.6 0 0 0 2.2-4l-5.1-8.8V3"/><path d="M7.4 14.5h9.2" stroke-linecap="round"/></svg>',
+  bell: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M12 4a5.5 5.5 0 0 0-5.5 5.5c0 4-1.5 5.5-1.5 5.5h14s-1.5-1.5-1.5-5.5A5.5 5.5 0 0 0 12 4z"/><path d="M10.2 18.5a2 2 0 0 0 3.6 0" stroke-linecap="round"/></svg>',
+  wave: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 13h3l2.5-6 4 10 3-7 1.8 3H21"/></svg>',
+};
 const SRC_RU = { dr: "экипаж", telegram: "человек", human: "человек", miniapp: "человек" };
 
 /* --------------------------------------------------------------- утилиты */
@@ -178,14 +187,11 @@ function progressHTML(p, paused) {
 
 /* --------------------------------------------------------------- хедер */
 function renderHeader() {
-  const d = S.data;
-  const conn = $("#conn"), connTxt = $("#conn-txt"), upd = $("#upd");
-  if (S.offline) { conn.className = "conn off"; connTxt.textContent = "нет связи"; }
-  else if (d && d.mode === "demo") { conn.className = "conn demo"; connTxt.textContent = "демо-симуляция"; }
-  else { conn.className = "conn"; connTxt.textContent = "онлайн"; }
-  if (!d) { upd.textContent = "—"; return; }
+  const upd = $("#upd");
+  if (S.offline) { upd.textContent = "нет связи"; return; }
+  if (!S.data) { upd.textContent = "—"; return; }
   const s = Math.round((Date.now() - S.lastFetchOk) / 1000);
-  upd.textContent = s < 4 ? "только что" : s + " с назад";
+  upd.textContent = s < 4 ? "живые данные" : s + " с назад";
 }
 
 /* ============================================================================
@@ -199,7 +205,7 @@ function screenDash() {
   const hero = cur ? `
     <section class="card task-hero">
       <div class="th-top">
-        <span class="chip acc">на GPU</span>
+        <span class="chip acc">${ICOS.bolt} на GPU</span>
         <span class="chip mono">${esc(cur.hid)}</span>
         <span class="chip violet">${esc(cur.level || "")}</span>
         ${cur.dry_run ? `<span class="chip warn">dry-run</span>` : ""}
@@ -215,15 +221,23 @@ function screenDash() {
       </div>
     </section>` : `
     <section class="card">
-      <div class="card-label"><span>Прогонов нет</span><span class="r">${g.autostart ? "автозапуск вкл" : "пауза"}</span></div>
-      <div class="empty"><div class="e-ico">🛰</div>GPU свободен. ${g.autostart ? "Диспетчер проверяет очередь каждые 2 минуты." : "Автозапуск остановлен (/resume)."}</div>
-      ${g.autostart ? `<button class="btn block" data-act="pause">${ICO.pause} Пауза</button>`
-                    : `<button class="btn primary block" data-act="resume">${ICO.play} Вернуть автозапуск</button>`}
+      <div class="card-label"><span class="cl-ico" style="color:var(--ok)">${ICOS.wave}</span><span>Контур жив</span><span class="r">${g.autostart ? "автозапуск вкл" : "пауза"}</span></div>
+      <div class="empty" style="padding:14px 4px"><div class="e-ico">🛰</div>Прогонов нет — GPU свободен. Диспетчер проверяет очередь каждые 2 минуты и сам берёт лучшую по PPI.</div>
+      <div class="hyp-meta" style="gap:6px">
+        <span class="chip dim">${esc(g.platform || "")}</span>
+        <span class="chip dim">${st.queue_len} в очереди</span>
+        <span class="chip dim">тик · 2 мин</span>
+      </div>
+      <div class="split" style="margin-top:14px">
+        ${g.autostart ? `<button class="btn block" data-act="pause">${ICO.pause} Пауза</button>`
+                      : `<button class="btn primary block" data-act="resume">${ICO.play} Вернуть автозапуск</button>`}
+        <button class="btn block" data-act="nav" data-nav="pipe">Очередь ›</button>
+      </div>
     </section>`;
 
   const approvals = d.approvals.length ? `
     <section class="card approve-card">
-      <div class="card-label"><span>Ждёт решения человека</span><span class="r">${d.approvals.length}</span></div>
+      <div class="card-label"><span class="cl-ico" style="color:var(--warn)">${ICOS.bell}</span><span>Ждёт решения человека</span><span class="r">${d.approvals.length}</span></div>
       ${d.approvals.map((a) => `
         <div style="margin-bottom:10px">
           <div style="display:flex;gap:7px;align-items:center;flex-wrap:wrap">
@@ -240,10 +254,31 @@ function screenDash() {
         </div>`).join("")}
     </section>` : "";
 
+  // живая лента: последняя реплика, чекпойнт, последний вердикт
+  const lastMsg = d.crew.chat.length ? d.crew.chat[d.crew.chat.length - 1] : null;
+  const lastMsgName = lastMsg ? ((d.crew.agents || []).find((a) => a.id === lastMsg.agent) || {}).name || lastMsg.agent : "";
+  const checkpoint = d.queue.find((h) => h.status === "paused_checkpoint");
+  const lastVerdict = d.verdicts[0];
+  const nowRows = [
+    lastMsg ? { ico: ICOS.wave, color: "var(--acc-br)", nav: "crew", html: `<b style="color:${AGENT_COLOR[lastMsg.agent] || "var(--tx)"}">${esc(lastMsgName)}</b> · ${esc(lastMsg.text.length > 68 ? lastMsg.text.slice(0, 68) + "…" : lastMsg.text)}` } : null,
+    checkpoint ? { ico: ICOS.flask, color: "var(--warn)", nav: "pipe", hid: checkpoint.id, html: `<b class="mono">${esc(checkpoint.id)}</b> на чекпойнте — жду вердикта (${esc(checkpoint.title.slice(0, 44))}${checkpoint.title.length > 44 ? "…" : ""})` } : null,
+    lastVerdict ? { ico: ICO.check, color: lastVerdict.kind === "confirmed" ? "var(--ok)" : lastVerdict.kind === "rejected" || lastVerdict.kind === "killed" ? "var(--err)" : "var(--warn)", nav: "verdicts", html: `вердикт <b class="mono">${esc(lastVerdict.hid)}</b>: ${KIND_RU[lastVerdict.kind] || lastVerdict.kind}${lastVerdict.deviation != null ? ` · Δ ${fmtPct(lastVerdict.deviation, 0)}` : ""}` } : null,
+  ].filter(Boolean);
+  const nowBlock = nowRows.length ? `
+    <section class="card">
+      <div class="card-label"><span class="cl-ico">${ICOS.wave}</span><span>Сейчас в лаборатории</span><span class="r mono">${d.crew.chat_total} реплик всего</span></div>
+      ${nowRows.map((r) => `
+        <div style="display:flex;gap:11px;align-items:flex-start;padding:9px 2px;border-bottom:1px solid var(--line)">
+          <span class="cl-ico" style="width:17px;height:17px;color:${r.color};margin-top:2px">${r.ico}</span>
+          <div style="flex:1;min-width:0;font-size:14.5px;line-height:1.45;color:var(--tx2)">${r.html}</div>
+          <button class="rl-chev" ${r.hid ? `data-act="open-hyp" data-hid="${esc(r.hid)}"` : `data-act="nav" data-nav="${r.nav || "dash"}"`} style="background:none;border:0;color:var(--tx3);font-size:18px;padding:0 2px">›</button>
+        </div>`).join("")}
+    </section>` : "";
+
   const nextQ = d.queue.find((h) => h.status === "queued");
   const next = nextQ ? `
     <section class="rowlink" data-act="open-hyp" data-hid="${esc(nextQ.id)}">
-      <span class="chip acc">дальше</span>
+      <span class="cl-ico" style="width:18px;height:18px;color:var(--acc-br)">${ICOS.bolt}</span>
       <div style="min-width:0;flex:1">
         <div style="font-size:15px;font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(nextQ.title)}</div>
         <div class="note mono">${esc(nextQ.id)} · PPI ${fmtN(nextQ.ppi)} · ${fmtN(nextQ.est_hours, 1)} ч</div>
@@ -255,8 +290,9 @@ function screenDash() {
   return `
     ${hero}
     ${approvals}
+    ${nowBlock}
     <section class="card">
-      <div class="card-label"><span>${gpu.available ? esc(gpu.name) : "GPU"}</span><span class="r">${g.autostart ? "автозапуск вкл" : "автозапуск выкл"}</span></div>
+      <div class="card-label"><span class="cl-ico">${ICOS.chip}</span><span>${gpu.available ? esc(gpu.name) : "GPU"}</span><span class="r">${g.autostart ? "автозапуск вкл" : "автозапуск выкл"}</span></div>
       ${gpu.available ? `
       <div class="gpu-grid">
         <div class="ring">
@@ -283,22 +319,23 @@ function screenDash() {
           </div>
         </div>
       </div>` : `
-      <div class="empty"><div class="e-ico">🔌</div>GPU недоступен на этом узле${g.platform ? ` (${esc(g.platform)}${g.debug ? ", debug" : ""})` : ""}. Пульт работает: очередь, вердикты и экипаж — живые.</div>`}
+      <div class="empty"><div class="e-ico">🔌</div>GPU недоступен на этом узле${g.platform ? ` (${esc(g.platform)}${g.debug ? ", debug" : ""})` : ""}. Очередь копится — диспетчер запустит лучшую гипотезу, как появится свободная карта.</div>`}
     </section>
     <section class="card">
+      <div class="card-label"><span class="cl-ico" style="color:var(--acc-br)">${ICOS.battery}</span><span>Суточный лимит</span><span class="r mono">${fmtN(g.budget_hours.used, 1)} / ${fmtN(g.budget_hours.limit, 0)} ч</span></div>
       <div class="budget-stats">
-        <div class="kvv"><b>${fmtN(g.budget_hours.used, 1)}<em> / ${fmtN(g.budget_hours.limit, 0)} ч</em></b><span>потрачено</span></div>
+        <div class="kvv"><b>${fmtN(g.budget_hours.used, 1)}<em> ч</em></b><span>потрачено</span></div>
         <div class="kvv"><b class="${(g.budget_hours.limit - g.budget_hours.used) < 4 ? "delta-pos" : ""}">${fmtN(g.budget_hours.limit - g.budget_hours.used, 1)} ч</b><span>осталось</span></div>
-        ${g.has_tasks_counter ? `<div class="kvv"><b>${g.budget_tasks.used}<em> / ${g.budget_tasks.limit}</em></b><span>запусков дня</span></div>` : `<div class="kvv"><b>${st.verdicts_total}</b><span>вердиктов всего</span></div>`}
+        ${g.budget_tasks.has_tasks_counter ? `<div class="kvv"><b>${g.budget_tasks.used}<em> / ${g.budget_tasks.limit}</em></b><span>запусков дня</span></div>` : `<div class="kvv"><b>${st.verdicts_total}</b><span>вердиктов всего</span></div>`}
       </div>
       <div class="bar" style="height:10px"><span class="fill" style="width:${(g.budget_hours.used / g.budget_hours.limit * 100).toFixed(1)}%;background:linear-gradient(90deg,var(--acc),var(--violet))"></span></div>
       <div class="note" style="margin-top:8px">Дорогой прогон (&gt; ${g.approval_hours} ч) требует одобрения человека. Запуски решает диспетчер по PPI.</div>
     </section>
     <section class="kpi-grid">
-      <div class="kpi"><b>${st.calibration == null ? "—" : st.calibration + "%"}<em>точность</em></b><span>калибровка прогнозов</span></div>
-      <div class="kpi"><b>${wr == null ? "—" : wr + "%"}</b><span>доля подтверждений</span></div>
-      <div class="kpi"><b>${st.queue_len}</b><span>живых гипотез в очереди</span></div>
-      <div class="kpi"><b>${st.open_remarks}</b><span>открытых замечаний ревью</span></div>
+      <div class="kpi"><span class="k-ico">${ICOS.target}</span><b>${st.calibration == null ? "—" : st.calibration + "%"}<em>точность</em></b><span>калибровка прогнозов</span></div>
+      <div class="kpi"><span class="k-ico">${ICO.check}</span><b>${wr == null ? "—" : wr + "%"}</b><span>доля подтверждений</span></div>
+      <div class="kpi"><span class="k-ico">${ICOS.flask}</span><b>${st.queue_len}</b><span>живых гипотез в очереди</span></div>
+      <div class="kpi"><span class="k-ico">${ICOS.bell}</span><b>${st.open_remarks}</b><span>открытых замечаний ревью</span></div>
     </section>
     ${next}
     <section class="split">

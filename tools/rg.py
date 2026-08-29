@@ -62,6 +62,7 @@ def boot_report(rest: list[str]) -> int:
     st = report.status(conn, config)
     doctor = selfcheck.run_all()
     cron_ok = shutil.which("hermes") is not None
+    plat, debug = core.platform_mode(config)
     paused = st.get("paused")
     data = {
         "ok": (not paused) and bool(doctor.get("ok")),
@@ -77,6 +78,13 @@ def boot_report(rest: list[str]) -> int:
                           "Запусти установщик или добавь задания из cron/ вручную"),
             "gateway_note": "управление в Telegram живёт только при запущенном "
                             "`researchagen gateway start`",
+            "platform_note": (
+                "Windows: hermes cron нет — задания ставятся в планировщик задач, "
+                "готовые команды в docs/OPERATIONS.md (раздел «Автономия на Windows»)"
+                if plat == "windows" else
+                "macOS: контур отладочный, эксперименты идут как dry-run; GPU-обучение — "
+                "на Windows-узле" if plat == "macos" else
+                ""),
         },
         "status": st,
         "first_actions": (
@@ -105,6 +113,8 @@ def boot_report(rest: list[str]) -> int:
         print("  GPU: недоступен (нужно %s ГБ) — пульт, очередь и экипаж работают"
               % gpu.get("required_gb"))
     print("  автономия: %s" % data["autonomy"]["cron_note"])
+    if data["autonomy"].get("platform_note"):
+        print("  платформа: %s" % data["autonomy"]["platform_note"])
     for a in data["first_actions"]:
         print("  → %s" % a)
     return 0

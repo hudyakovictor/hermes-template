@@ -1446,7 +1446,9 @@ def safe_emit(event: str, ctx: dict | None = None, conn: sqlite3.Connection | No
     """Обёртка для вызова из других модулей: любые сбои глотаются и логируются."""
     try:
         emit(event, ctx, conn=conn, **kw)
-    except Exception as exc:  # noqa: BLE001 — чат не роняет контур
+    except (Exception, SystemExit) as exc:  # noqa: BLE001 — чат не роняет контур
+        # SystemExit — от core.fail (например, Telegram не настроен):
+        # отсутствие доставки не должно останавливать диспетчерский тик.
         try:
             core.append_log("crew.log", f"emit {event} failed: {exc}")
         except OSError:

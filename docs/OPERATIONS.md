@@ -91,6 +91,24 @@ hermes profile update researchagen
 Остальное восстанавливается из репозитория. Копируйте базу, когда ни один
 прогон не идёт (`rg.py running` пуст).
 
+## Автономия на Windows: планировщик задач
+
+`hermes cron` на Windows недоступен — те же пять заданий ставятся в Task
+Scheduler (команды те же, что в `cron/*.json`). Запуск от обычной PowerShell
+в каталоге профиля:
+
+```powershell
+schtasks /Create /TN "researchagen-dispatcher" /TR "python tools\rg.py tick" /SC MINUTE /MO 2
+schtasks /Create /TN "researchagen-research-loop" /TR "hermes run researchagen" /SC MINUTE /MO 25
+schtasks /Create /TN "researchagen-digest" /TR "python tools\rg.py digest --send" /SC DAILY /ST 09:00
+schtasks /Create /TN "researchagen-hygiene" /TR "python tools\hygiene.py run --max-run-hours 24" /SC DAILY /ST 03:30
+schtasks /Create /TN "researchagen-recalib" /TR "cmd /c python tools\rg.py recalib && python tools\rg.py weekly --send" /SC WEEKLY /D SUN /ST 20:00
+```
+
+Проверка: `schtasks /Query /TN "researchagen-*"`. GPU опрашивается через
+`nvidia-smi` (System32 или NVSMI — профиль найдёт сам). Если PowerShell
+выполняется не в каталоге профиля, укажите полные пути в `/TR`.
+
 ## Чего не делать
 
 - Не запускать два шлюза на один токен.

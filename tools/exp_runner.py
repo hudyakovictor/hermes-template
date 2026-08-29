@@ -125,6 +125,15 @@ def run(hypo_id: str, level: str, seeds: int | None = None, dry_run: bool = Fals
     metrics_path = os.path.join(out_dir, "metrics.jsonl")
     pre = preflight(level, config)
 
+    def _tg(fn, *args, **kw):
+        """Телеметрия — доставка, а не жизненный цикл: сбой Telegram (нет токена,
+        нет сети, SystemExit от core.fail) не имеет права убить эксперимент."""
+        try:
+            fn(*args, **kw)
+        except (Exception, SystemExit) as exc:  # noqa: BLE001
+            core.append_log("exp-runner.log",
+                            f"telemetry skipped: {exc}")
+
     core.log_event(conn, "exp.start", hypo_id, level=level, seeds=seeds,
                    dry_run=dry_run, smoke=smoke, preflight=pre)
 
@@ -133,7 +142,7 @@ def run(hypo_id: str, level: str, seeds: int | None = None, dry_run: bool = Fals
         result = synthetic_seed_run(seed, steps, hypo_id, level, metrics_path, dry_run)
         per_seed.append(result)
         pct = idx / seeds * 100
-        tg.throttled_progress(
+        _tg(tg.throttled_progress,
             conn, hypo_id,
             tg.progress_card(hypo_id, level, pct,
                              f"seed {idx}/{seeds} завершён",
@@ -179,7 +188,7 @@ def run(hypo_id: str, level: str, seeds: int | None = None, dry_run: bool = Fals
     dispatch.finish(conn, hypo_id, summary["gpu_hours"],
                     "preempted" if stopped else "done")
 
-    tg.send(
+    _tg(tg.send,
         f"*✅ {hypo_id} {level} завершён*\n"
         f"seeds {summary['seeds_done']}/{seeds} | loss {summary['final_loss_mean']} "
         f"±{summary['final_loss_sd']}\n"
