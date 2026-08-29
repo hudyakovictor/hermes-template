@@ -26,7 +26,7 @@ worker не подтвердил checkpoint, новый inference/experiment н�
    │  ≥3 независимых источника
    ▼
 гипотеза (hypotheses/H-XXX.yaml) — 10 обязательных секций
-   │  7 kill-проверок  ────▶ убита до GPU = успех (memory/killed.md)
+   │  8 kill-проверок  ────▶ убита до GPU = успех (memory/killed.md)
    ▼
 очередь (SQLite): PI → PPI = PI / GPU-часы → корзины P1..P4
    │  governor: mode? leases? VRAM/util? reserve? budget? pause?
