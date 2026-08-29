@@ -165,7 +165,12 @@ class TTLCache:
             return None
         try:
             return json.loads(row["payload"])
-        except json.JSONDecodeError:
+        except (TypeError, json.JSONDecodeError):
+            self.conn.execute(
+                "DELETE FROM bd_cache WHERE namespace=? AND cache_key=?",
+                (self.namespace, key),
+            )
+            self.conn.commit()
             return None
 
     def set(self, key: str, value: Any) -> None:
@@ -291,8 +296,12 @@ def _normalise_results(payload: Any, default_tool: str = "") -> List[Dict[str, A
     for item in payload:
         if isinstance(item, dict):
             row = dict(item)
+        elif isinstance(item, str) and item.strip():
+            row = {"claim": item}
         else:
-            row = {"claim": str(item)}
+            # Numeric/null/object rows are malformed adapter output, not
+            # evidence.  Do not manufacture a scientific claim from them.
+            continue
         if default_tool and not row.get("tool"):
             row["tool"] = default_tool
         output.append(row)

@@ -84,6 +84,7 @@ class BottomDetectionSkill:
             metrics=self.metrics,
         )
         self._run_id: Optional[int] = None
+        self._run_start_iteration: Optional[int] = None
         if not self.state.regions:
             self._seed_regions()
         self._persist()
@@ -248,7 +249,11 @@ class BottomDetectionSkill:
             if max_iterations is None
             else max(0, int(max_iterations))
         )
-        limit = min(self.config.max_iterations, requested)
+        session_limit = min(self.config.max_iterations, requested)
+        # ``--iterations 1`` is a per-invocation tick.  The materialized
+        # iteration counter remains cumulative so repeated cron calls continue
+        # from the saved frontier instead of becoming a no-op after tick one.
+        limit = self.state.iteration + session_limit
         started_at = core.iso()
         cursor = self.conn.execute(
             "INSERT INTO bd_runs(namespace,started_at,status) VALUES (?,?,?)",
@@ -256,6 +261,7 @@ class BottomDetectionSkill:
         )
         self.conn.commit()
         self._run_id = int(cursor.lastrowid)
+        self._run_start_iteration = self.state.iteration
         append_history(self.conn, self.state, "run.started", run_id=self._run_id)
 
         try:
@@ -286,6 +292,8 @@ class BottomDetectionSkill:
                 if decision == "stop":
                     break
         except asyncio.CancelledError:
+            append_history(self.conn, self.state, "run.cancelled", run_id=self._run_id)
+            self._finish_run("cancelled")
             self.logger.warning(
                 "Bottom Detection run cancelled",
                 extra=log_extra(event="run_cancelled", run_id=self._run_id),
@@ -594,6 +602,20 @@ class BottomDetectionSkill:
         """Hand a candidate to the existing queue; never bypass its gate."""
 
         candidate = self._get_hypothesis(hypothesis_id)
+        existing_profile_id = candidate.metadata.get("profile_hypothesis_id")
+        if candidate.status == "promoted" and existing_profile_id:
+            row = self.conn.execute(
+                "SELECT * FROM hypotheses WHERE id=?", (existing_profile_id,)
+            ).fetchone()
+            if row is None:
+                raise ExperimentError(
+                    f"{hypothesis_id}: promotion record {existing_profile_id} is missing"
+                )
+            return {
+                "candidate": asdict(candidate),
+                "profile_hypothesis": dict(row),
+                "card": row["card_path"],
+            }
         independent = {
             self.state.evidence[eid].independent_key
             for eid in candidate.evidence_ids
@@ -766,7 +788,15 @@ class BottomDetectionSkill:
             "UPDATE bd_runs SET finished_at=?,iterations=?,cost_usd=?,status=?,summary=? WHERE run_id=?",
             (
                 core.iso(),
-                self.state.iteration,
+                max(
+                    0,
+                    self.state.iteration
+                    - (
+                        self._run_start_iteration
+                        if self._run_start_iteration is not None
+                        else self.state.iteration
+                    ),
+                ),
                 self.state.cost_usd,
                 status,
                 json.dumps(summary or {}, ensure_ascii=False, default=str),
@@ -787,10 +817,16 @@ class BottomDetectionSkill:
             )
             for item in top
         }
+        run_start = (
+            self._run_start_iteration
+            if self._run_start_iteration is not None
+            else self.state.iteration
+        )
         return {
             "namespace": self.state.namespace,
             "domain": self.state.domain,
             "iterations": self.state.iteration,
+            "run_iterations": max(0, self.state.iteration - run_start),
             "cost_usd": round(self.state.cost_usd, 4),
             "regions": [asdict(item) for item in self.state.regions.values()],
             "hypotheses": [asdict(item) for item in self.state.hypotheses.values()],

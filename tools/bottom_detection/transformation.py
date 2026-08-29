@@ -180,14 +180,22 @@ class TransformationSkill:
         return results
 
     def transform(self, hypothesis: Hypothesis) -> List[TransformationResult]:
-        """Run synonym, related-concept and cross-domain expansion in order."""
+        """Run all three families, reserving one slot for each available family."""
 
-        output: List[TransformationResult] = []
-        output.extend(self.transform_via_synonyms(hypothesis))
-        output.extend(self.transform_via_related_concepts(hypothesis))
-        output.extend(self.transform_via_cross_domain(hypothesis))
+        groups = [
+            self.transform_via_synonyms(hypothesis),
+            self.transform_via_related_concepts(hypothesis),
+            self.transform_via_cross_domain(hypothesis),
+        ]
         limit = self._limit()
-        return output[:limit]
+        output: List[TransformationResult] = []
+        # Round-robin keeps cross-domain analogies from being starved by a large
+        # synonym dictionary while remaining deterministic.
+        while len(output) < limit and any(groups):
+            for group in groups:
+                if group and len(output) < limit:
+                    output.append(group.pop(0))
+        return output
 
     def _replace_transformations(
         self,
@@ -228,14 +236,19 @@ class TransformationSkill:
             id=f"{hypothesis.id}:{kind}:{digest}",
             region_id=hypothesis.region_id,
             text=text,
-            mechanism=hypothesis.mechanism,
-            signal_sources=list(hypothesis.signal_sources),
+            # The child keeps only provenance.  Evidence, source-derived
+            # novelty, the mechanism score and the parent's forecast must be
+            # re-earned/re-fixed for the transformed wording.
+            mechanism="",
+            signal_sources=[],
             estimated_hours=hypothesis.estimated_hours,
-            forecast=hypothesis.forecast,
+            forecast=None,
             origin_id=hypothesis.id,
             metadata={
                 "transformation_type": kind,
                 "transformation_label": label,
+                "origin_forecast": hypothesis.forecast,
+                "origin_mechanism": hypothesis.mechanism,
             },
         )
 

@@ -189,7 +189,7 @@ researchagen:
     transformation_dictionary: null               # optional JSON path
     num_initial_regions: 10
     max_parallel_evaluations: 5                # hard cap: 1..10
-    max_iterations: 200
+    max_iterations: 200                       # per run; state iteration is cumulative
     target_confirmed_hypotheses: 3
     max_cost_usd: 10
     mcp_rate_limit: 100                         # запросов/час

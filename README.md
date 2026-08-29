@@ -78,7 +78,8 @@ researchagen chat            # ручная сессия, когда нужно 
 
 `/bottom` — опциональный гибридный Bottom Detection: дерево регионов,
 backtracking, transformations и async evaluators. Он не обходит kill-stage,
-очередь или GPU-диспетчер. Подробно: [docs/BOTTOM-DETECTION.md](docs/BOTTOM-DETECTION.md).
+очередь или GPU-диспетчер. Подробно: [docs/BOTTOM-DETECTION.md](docs/BOTTOM-DETECTION.md);
+дополнительный 30-пунктовый аудит: [docs/BOTTOM-DETECTION-AUDIT.md](docs/BOTTOM-DETECTION-AUDIT.md).
 
 Единая точка входа без модели: `python tools/rg.py <команда>`. Для Bottom Detection:
 `python tools/rg.py bottom run --iterations 1`.

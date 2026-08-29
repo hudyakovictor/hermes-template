@@ -63,8 +63,9 @@ MCP, Hermes gateway, Telegram и GPU-прогоны должны быть про
 | Structured logging | stdlib `JsonFormatter` |
 | Metrics | stdlib Prometheus text exporter |
 | Rate limiting/cache/retry | sliding-window limiter, SQLite TTL 24h, exponential backoff |
-| Limits | `max_iterations`, `max_cost_usd`, evaluator cap, region depth/candidate caps |
-| Тесты/coverage | 62 теста; stdlib AST/trace harness даёт 87.56% executable-line estimate |
+| Limits | per-run `max_iterations`, cumulative `max_cost_usd`, evaluator cap, region depth/candidate caps |
+| Тесты/coverage | 65 тестов; stdlib AST/trace harness даёт 87.95% executable-line estimate |
+| Дополнительный аудит | 30/30 локальных контрактных и failure-path проверок; детали в `docs/BOTTOM-DETECTION-AUDIT.md` |
 
 Проверка тестов и покрытия:
 

@@ -17,6 +17,7 @@ sys.path.insert(0, os.path.join(ROOT, "tools"))
 
 import core  # noqa: E402
 import inbox  # noqa: E402
+import queue as profile_queue  # noqa: E402
 import bottom_study  # noqa: E402
 from bottom_detection import (  # noqa: E402
     BottomDetectionSkill,
@@ -174,8 +175,18 @@ class TestTransformations(unittest.TestCase):
         self.assertIn("synonym", kinds)
         self.assertIn("related_concept", kinds)
         self.assertIn("cross_domain", kinds)
-        self.assertTrue(any(result.transformed_hypotheses[0].origin_id == original.id for result in results))
-        self.assertTrue(all(result.transformed_hypotheses[0].priority == 0.0 for result in results))
+        children = [result.transformed_hypotheses[0] for result in results]
+        self.assertTrue(any(child.origin_id == original.id for child in children))
+        self.assertTrue(all(child.priority == 0.0 for child in children))
+        self.assertTrue(all(not child.evidence_ids for child in children))
+        self.assertTrue(all(not child.signal_sources for child in children))
+        self.assertTrue(all(child.forecast is None for child in children))
+        self.assertTrue(all(not child.mechanism for child in children))
+        default_results = TransformationSkill(SkillConfig("mission", "domain")).transform(original)
+        self.assertEqual(
+            {result.transformation_type for result in default_results},
+            {"synonym", "related_concept", "cross_domain"},
+        )
 
     def test_external_dictionary_is_optional(self) -> None:
         with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as fh:
@@ -296,6 +307,11 @@ class TestMCPAdapters(unittest.IsolatedAsyncioTestCase):
         self.conn.close()
         self.tmp.cleanup()
 
+    async def test_legacy_queue_exports_stdlib_simplequeue_compatibility(self) -> None:
+        queue = profile_queue.SimpleQueue()
+        queue.put("item")
+        self.assertEqual(queue.get_nowait(), "item")
+
     async def test_json_command_transport_and_normalisation(self) -> None:
         command = [
             sys.executable,
@@ -399,6 +415,18 @@ class TestSkill(TempDb, unittest.IsolatedAsyncioTestCase):
         self.assertIn("SIGNAL", next(iter(result["verdicts"].values())))
         self.assertIn("researchagen_bottom_detection_", result["prometheus"])
 
+    async def test_repeated_one_iteration_ticks_continue_from_saved_state(self) -> None:
+        skill = self.make_skill(num_initial_regions=1, max_iterations=2)
+        first = await skill.run(1)
+        second = await skill.run(1)
+        self.assertEqual(first["run_iterations"], 1)
+        self.assertEqual(second["run_iterations"], 1)
+        self.assertEqual(second["iterations"], 2)
+        latest = self.conn.execute(
+            "SELECT iterations FROM bd_runs ORDER BY run_id DESC LIMIT 1"
+        ).fetchone()["iterations"]
+        self.assertEqual(latest, 1)
+
     async def test_backtracking_returns_parent_to_frontier(self) -> None:
         skill = self.make_skill()
         parent = next(iter(skill.state.regions.values()))
@@ -487,6 +515,20 @@ class TestSkill(TempDb, unittest.IsolatedAsyncioTestCase):
         self.assertIsInstance(command_skill.mcp.transport, JsonCommandMCPTransport)
         command_skill.close()
 
+    async def test_cancelled_run_is_not_left_as_running(self) -> None:
+        skill = self.make_skill(num_initial_regions=1, max_iterations=1)
+
+        async def cancel(_region: Region) -> List[Hypothesis]:
+            raise asyncio.CancelledError()
+
+        skill._generate_candidates = cancel  # type: ignore[method-assign]
+        with self.assertRaises(asyncio.CancelledError):
+            await skill.run()
+        status = self.conn.execute(
+            "SELECT status FROM bd_runs ORDER BY run_id DESC LIMIT 1"
+        ).fetchone()["status"]
+        self.assertEqual(status, "cancelled")
+
     async def test_promotion_creates_the_normal_queue_card(self) -> None:
         skill = self.make_skill(num_initial_regions=1)
         region = next(iter(skill.state.regions.values()))
@@ -511,6 +553,11 @@ class TestSkill(TempDb, unittest.IsolatedAsyncioTestCase):
             self.assertEqual(promoted["candidate"]["status"], "promoted")
             self.assertTrue(os.path.exists(promoted["card"]))
             self.assertTrue(promoted["profile_hypothesis"]["id"].startswith("H-"))
+            again = skill.promote(candidate.id)
+            self.assertEqual(again["profile_hypothesis"]["id"], promoted["profile_hypothesis"]["id"])
+            self.assertEqual(
+                self.conn.execute("SELECT COUNT(*) FROM hypotheses").fetchone()[0], 1
+            )
         finally:
             core.HYPO_DIR = old_hypo_dir
 

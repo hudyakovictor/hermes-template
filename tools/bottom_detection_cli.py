@@ -26,7 +26,10 @@ from bottom_detection import BottomDetectionSkill, SkillConfig, format_verdict
 
 def _skill() -> BottomDetectionSkill:
     core.load_env()
-    if not bool(core.cfg("researchagen.bottom_detection.enabled", True)):
+    enabled = core.cfg("researchagen.bottom_detection.enabled", True)
+    if isinstance(enabled, str):
+        enabled = enabled.strip().lower() not in {"0", "false", "no", "off"}
+    if not bool(enabled):
         core.fail("Bottom Detection отключён в researchagen.bottom_detection.enabled")
     return BottomDetectionSkill(SkillConfig.from_profile())
 
