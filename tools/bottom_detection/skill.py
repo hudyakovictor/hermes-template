@@ -243,7 +243,12 @@ class BottomDetectionSkill:
     async def run(self, max_iterations: Optional[int] = None) -> Dict[str, Any]:
         """Run one bounded asynchronous search session."""
 
-        limit = min(self.config.max_iterations, max_iterations or self.config.max_iterations)
+        requested = (
+            self.config.max_iterations
+            if max_iterations is None
+            else max(0, int(max_iterations))
+        )
+        limit = min(self.config.max_iterations, requested)
         started_at = core.iso()
         cursor = self.conn.execute(
             "INSERT INTO bd_runs(namespace,started_at,status) VALUES (?,?,?)",
