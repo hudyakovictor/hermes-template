@@ -16,6 +16,9 @@
   python tools/rg.py aichat [--n 30]              # история чата экипажа
   python tools/rg.py crew emit|replay|review|stats|mute|test|bet|bets
   python tools/rg.py inbox add|list|take|drop     # сырьё от человека
+  python tools/rg.py idea "текст"                 # идея от человека → разбор экипажем
+  python tools/rg.py triage IN-001 [--signals 3]  # разбор: очередь или лог неэффективных
+  python tools/rg.py ideas [--verdict rejected]   # очередь идей и лог отклонённых
   python tools/rg.py hygiene                      # ночная уборка состояния
   python tools/rg.py priors search "запрос"       # prior-art по 6 источникам
   python tools/rg.py audit                        # 30 анализов функционала
@@ -83,6 +86,12 @@ def main(argv: list[str]) -> int:
         "crew": lambda: crew.main([argv[0]] + argv[2:]),
         "inbox": lambda: importlib.import_module("inbox").main(
             [argv[0]] + argv[2:]),
+        "idea": lambda: importlib.import_module("ideas").main(
+            [argv[0], "submit"] + argv[2:]),
+        "ideas": lambda: importlib.import_module("ideas").main(
+            [argv[0], "log"] + argv[2:]),
+        "triage": lambda: importlib.import_module("ideas").main(
+            [argv[0], "triage"] + argv[2:]),
         "hygiene": lambda: importlib.import_module("hygiene").main(
             [argv[0], "run"] + argv[2:]),
         "audit": lambda: importlib.import_module("audit").main(

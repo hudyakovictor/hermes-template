@@ -240,6 +240,19 @@ CREATE TABLE IF NOT EXISTS agent_bets (
     resolved_at TEXT
 );
 
+CREATE TABLE IF NOT EXISTS idea_log (
+    idea_id    TEXT PRIMARY KEY,          -- IN-XXX | DUP-XXXXX
+    text       TEXT NOT NULL,
+    title      TEXT,
+    verdict    TEXT NOT NULL,             -- queued | rejected | duplicate
+    reason     TEXT,                      -- почему: пробелы или причина отказа
+    pi         REAL,
+    ppi        REAL,
+    hypo_id    TEXT,
+    source     TEXT,
+    created_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS runs (
     run_id       INTEGER PRIMARY KEY AUTOINCREMENT,
     hypo_id      TEXT NOT NULL,

@@ -31,12 +31,16 @@ EVENTS = [
     ("launch", 10), ("finish_ok", 6), ("finish_fail", 4), ("preempt", 3),
     ("verdict_confirmed", 5), ("verdict_rejected", 7), ("verdict_partial", 4),
     ("kill", 4), ("queue_empty", 5), ("digest", 3), ("weekly", 2),
-    ("budget_burn", 3), ("mode_change", 2), ("agi_day", 1), ("мусорное", 2),
+    ("budget_burn", 3), ("mode_change", 2), ("agi_day", 1),
+    ("idea_intake", 4), ("idea_review", 4), ("idea_queued", 3),
+    ("idea_rejected", 3), ("idea_dup", 2), ("мусорное", 2),
 ]
 
 CTX_KEYS = ["hid", "forecast", "actual", "dev", "hours", "seeds", "passed",
             "total", "budget", "burn", "free", "level", "pct", "ratio", "mode",
-            "min", "signals", "money", "challenger", "open_findings", "bias"]
+            "min", "signals", "money", "challenger", "open_findings", "bias",
+            "iid", "title", "pi", "note", "signals_est", "reason",
+            "dup_id", "dup_verdict", "dup_why", "score"]
 
 
 def make_state(conn, rng, tmp):
@@ -95,6 +99,15 @@ def random_ctx(rng) -> dict:
     for key in rng.sample(CTX_KEYS, rng.randint(0, 8)):
         if key in ("hid", "level", "mode", "challenger"):
             ctx[key] = rng.choice(["H-001", "H-042", None])
+        elif key in ("iid", "dup_id"):
+            ctx[key] = rng.choice(["IN-001", "IN-007", None])
+        elif key in ("title", "note", "reason", "dup_why"):
+            ctx[key] = rng.choice(["кэш длинного контекста", "сигналов 2 < 3",
+                                   "оценка агента", None])
+        elif key in ("dup_verdict",):
+            ctx[key] = rng.choice(["отклонено", "в очереди", None])
+        elif key in ("pi", "score", "signals_est"):
+            ctx[key] = rng.choice(["0.42", "61%", 2, None])
         elif key in ("forecast", "actual", "dev", "hours", "budget", "burn",
                      "free", "pct", "ratio", "min", "money", "bias",
                      "open_findings"):

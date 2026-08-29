@@ -489,7 +489,11 @@ def a15() -> list[dict]:
                     "open_findings": 1, "bias": -31, "subject": "H-001",
                     "check": "gap", "age": "3 дня", "bets_line": "ставки — за: Крот.",
                     "bets_result": "по ставкам — выиграли: Крот.", "title": "T",
-                    "ppi": "0.50", "demand": 1, "kind": "confirmed"}
+                    "ppi": "0.50", "demand": 1, "kind": "confirmed",
+                    "iid": "IN-001", "pi": "0.42", "note": "оценка агента",
+                    "signals_est": 2, "reason": "сигналов 2 < 3",
+                    "dup_id": "IN-003", "dup_verdict": "отклонено",
+                    "dup_why": "покупатель не назван", "score": "61%"}
         for event in crew.SCENES:
             for seed in range(8):
                 rng = random.Random(f"{event}-{seed}")

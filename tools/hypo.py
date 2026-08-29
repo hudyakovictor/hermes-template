@@ -293,6 +293,16 @@ def main(argv: list[str]) -> int:
         if len(argv) < 3 or argv[2].startswith("--"):
             core.fail("нужно название")
         title = argv[2]
+        # ранний дубль-гейт: «это уже рассматривали» — до создания карточки
+        if not core.flag(argv, "force"):
+            import ideas as _ideas
+            dups = _ideas.find_duplicates(conn, title)
+            if dups:
+                d = dups[0]
+                core.fail(
+                    f"дубль {d['kind']} {d['id']} ({d['verdict']}, "
+                    f"похожесть {d['score']:.0%}) — уже рассматривали. "
+                    f"Новое — с --force и новыми данными")
         kw = fields_from_args(argv)
         kw.pop("title", None)      # title идёт позиционно; в kw его быть не должно
 
