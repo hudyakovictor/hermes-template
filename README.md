@@ -72,19 +72,24 @@ researchagen chat            # ручная сессия, когда нужно 
 
 ## Команды
 
-Исследование: `/dr` `/mine` `/h` `/kill`
+Исследование: `/dr` `/mine` `/h` `/kill` `/bottom`
 Исполнение: `/pool` `/next` `/launch` `/preempt` `/v`
 Управление: `/auto` `/panel` `/digest` `/gpu` `/calib` `/patent` `/add` `/board` `/doctor`
 
-Единая точка входа без модели: `python tools/rg.py <команда>`.
+`/bottom` — опциональный гибридный Bottom Detection: дерево регионов,
+backtracking, transformations и async evaluators. Он не обходит kill-stage,
+очередь или GPU-диспетчер. Подробно: [docs/BOTTOM-DETECTION.md](docs/BOTTOM-DETECTION.md).
+
+Единая точка входа без модели: `python tools/rg.py <команда>`. Для Bottom Detection:
+`python tools/rg.py bottom run --iterations 1`.
 
 ## Структура
 
 ```
 MISSION.md SOUL.md .hermes.md FOCUS.md   — цель, характер, правила, текущий фокус
 config.yaml .env.EXAMPLE                 — конфигурация и шаблон секретов
-tools/                                   — 15 инструментов (stdlib-only)
-skills/                                  — 18 скиллов = слеш-команды
+tools/                                   — основной контур + hybrid Bottom Detection (stdlib-only)
+skills/                                  — 19 скиллов = слеш-команды
 cron/                                    — 5 задач автономного контура
 hooks/BOOT.md                            — что делать в начале сессии
 docs/                                    — архитектура, Telegram, эксплуатация, оценка

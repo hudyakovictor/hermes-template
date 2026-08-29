@@ -81,6 +81,21 @@ python tools/hypo.py kill H-XXX --why "<что именно убило>" --lesso
 См. скилл `/v`. Главное правило: результат всегда сравнивается с ЗАРАНЕЕ зафиксированным
 прогнозом. Подгонка прогноза пост-фактум — грубое нарушение.
 
+## Bottom Detection (гибридный слой, опционально)
+
+Если нужна систематическая разведка регионов, а не только один поисковый запрос,
+выполни одну итерацию:
+
+```bash
+python tools/rg.py bottom run --iterations 1
+```
+
+После этого используй native MCP-инструменты Hermes для проверки источников и занеси
+их с provenance через `/bottom evidence`. Bottom Detection пишет в ту же SQLite, но
+не запускает GPU и не закрывает научный вердикт; promotion всё равно проходит
+`hypo.py check` и kill-stage. При отключённом `researchagen.bottom_detection.enabled`
+работай обычным `/dr` без этого слоя.
+
 ## Завершение тика
 
 1. `python tools/board.py sync` — отразить в канбане.

@@ -79,6 +79,22 @@ L2 — эффект выживает на реальном масштабе? L3 
 `selfcheck.py` сравнивает токены во всех `profiles/*/.env` и падает при совпадении:
 два long-polling процесса на один токен — нерабочая конфигурация.
 
+## Bottom Detection как гибридный поисковый слой
+
+Bottom Detection не заменяет `/dr` и не создаёт второй профиль. Это mission-scoped
+слой ширины поиска: он строит дерево регионов, запускает асинхронные evaluators,
+делает backtracking и контролируемые трансформации, а затем передаёт кандидата в
+тот же `hypotheses/` → kill-stage → SQLite queue → dispatch cascade. Его состояние
+(`bd_regions`, `bd_hypotheses`, `bd_evidence`, `bd_history`, `bd_cache`, `bd_runs`)
+живет в той же базе, поэтому `/status` и поисковый слой не могут незаметно увидеть
+разные очереди.
+
+Вызов: `python tools/rg.py bottom run --iterations N`. Native MCP Hermes остаётся
+владельцем сетевого tool-calling; Python transport подключается только явно через
+adapter. Нет adapter — это честный режим без literature evidence, а не выдуманное
+подтверждение. Трансформированные кандидаты получают новый ID и нулевые scores;
+их evidence нужно заработать повторно.
+
 ## Почему без внешних зависимостей
 
 Профиль ставится в среду, где уже живёт другой агент. Любой `pip install` — риск

@@ -28,7 +28,7 @@ KIND_STATUS = {"confirmed": "confirmed", "partial": "partial",
 
 KIND_WORD = {
     "confirmed": "ПОДТВЕРЖДЕНО",
-    "partial": "ЧАСТИЧНО (эффект есть, условия уже прогноза)",
+    "partial": "ЧАСТИЧНО (эффект есть, но не во всех условиях прогноза)",
     "rejected": "ОПРОВЕРГНУТО",
     "killed": "СНЯТО ДО ЭКСПЕРИМЕНТА",
 }
@@ -76,6 +76,16 @@ def record(conn, hid: str, kind: str, actual=None, seeds_pass: int = 0,
         core.fail(f"{hid} не найдена")
     if kind not in KIND_STATUS:
         core.fail(f"kind должен быть одним из: {', '.join(KIND_STATUS)}")
+    if kind != "killed" and row["forecast"] is None:
+        core.fail("вердикт невозможен: прогноз должен быть зафиксирован до запуска")
+    if kind != "killed" and actual in (None, ""):
+        core.fail("для вердикта нужен фактический результат --actual")
+    latest_run = conn.execute(
+        "SELECT dry_run FROM runs WHERE hypo_id=? ORDER BY run_id DESC LIMIT 1",
+        (hid,),
+    ).fetchone()
+    if kind != "killed" and latest_run is not None and latest_run["dry_run"]:
+        core.fail("dry-run не является научным результатом и не закрывает гипотезу")
     banned = check_language(changes)
     if banned:
         core.fail("в поле --changes запрещённые формулировки: "

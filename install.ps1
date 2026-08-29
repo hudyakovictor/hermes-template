@@ -181,6 +181,7 @@ $cfgSrc = Join-Path $SrcDir 'config.yaml'
 $cfgDst = Join-Path $Target 'config.yaml'
 $cfg = Get-Content -Raw -Encoding UTF8 $cfgSrc
 $cfg = $cfg.Replace('<<INSTALLER_PLATFORM>>', $Platform).
+            Replace('<<INSTALLER_MODE>>', $(if ($DebugMode -eq 'true') { 'debug' } else { 'production' })).
             Replace('<<INSTALLER_DEBUG_MODE>>', $DebugMode).
             Replace('<<INSTALLER_MODEL_NAME>>', $ModelName).
             Replace('<<INSTALLER_MODEL_BASE_URL>>', $ModelBase).

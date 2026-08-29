@@ -148,8 +148,8 @@ database:
 # Читаются только инструментами tools/*.py через tools/core.py.
 # Hermes игнорирует неизвестные топ-левел секции.
 researchagen:
-  platform: windows                            # <<INSTALLER>> windows | macos
-  mode: production                             # <<INSTALLER>> production (win) | debug (macos)
+  platform: <<INSTALLER_PLATFORM>>              # windows | macos | linux
+  mode: <<INSTALLER_MODE>>                      # production | debug
   autolaunch: true                             # R4: автозапуск экспериментов
   limits:
     approval_gpu_hours: 12                     # R7: дороже — только с /approve
@@ -181,3 +181,26 @@ researchagen:
   telegram:
     progress_every_seconds: 900                # карточка прогресса не чаще раза в 15 мин
     digest_hour: 9
+  bottom_detection:                            # гибридный поисковый слой
+    enabled: true
+    domain: training-dynamics
+    llm_model: local
+    mcp_tools: arxiv,pubmed,google_scholar,github
+    transformation_dictionary: null               # optional JSON path
+    num_initial_regions: 10
+    max_parallel_evaluations: 5                # hard cap: 1..10
+    max_iterations: 200
+    target_confirmed_hypotheses: 3
+    max_cost_usd: 10
+    mcp_rate_limit: 100                         # запросов/час
+    mcp_cache_ttl_hours: 24
+    retry_attempts: 3
+    retry_base_seconds: 0.25
+    region_no_signal_limit: 2
+    min_signal_score: 0.55
+    max_region_depth: 3
+    max_candidates_per_region: 4
+    max_transformations_per_hypothesis: 8
+    enable_metrics: true
+    log_level: INFO
+    log_format: json

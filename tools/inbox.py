@@ -43,6 +43,7 @@ def _load() -> list[dict]:
 
 def _save(items: list[dict]) -> None:
     core.ensure_dirs()
+    os.makedirs(os.path.dirname(os.path.abspath(INBOX_PATH)), exist_ok=True)
     with open(INBOX_PATH, "w", encoding="utf-8") as fh:
         for item in items:
             fh.write(json.dumps(item, ensure_ascii=False) + "\n")
@@ -55,7 +56,10 @@ def add(text: str, source: str = "human") -> dict:
     items.append(item)
     _save(items)
     conn = core.db()
-    core.log_event(conn, "inbox.add", None, inbox_id=item["id"], source=source)
+    try:
+        core.log_event(conn, "inbox.add", None, inbox_id=item["id"], source=source)
+    finally:
+        conn.close()
     return item
 
 
@@ -67,8 +71,11 @@ def take(inbox_id: str, fields: dict) -> dict:
     if target["state"] != "new":
         core.fail(f"{inbox_id}: уже обработан ({target['state']})")
     conn = core.db()
-    created = hypo.create(conn, fields.get("title") or target["text"][:90],
-                          {**fields, "source": f"inbox:{inbox_id}"})
+    try:
+        created = hypo.create(conn, fields.get("title") or target["text"][:90],
+                              {**fields, "source": f"inbox:{inbox_id}"})
+    finally:
+        conn.close()
     target["state"] = "promoted"
     target["hypo_id"] = created["id"]
     target["handled_at"] = core.iso()
@@ -88,7 +95,10 @@ def drop(inbox_id: str, why: str) -> dict:
     target["handled_at"] = core.iso()
     _save(items)
     conn = core.db()
-    core.log_event(conn, "inbox.drop", None, inbox_id=inbox_id, why=why)
+    try:
+        core.log_event(conn, "inbox.drop", None, inbox_id=inbox_id, why=why)
+    finally:
+        conn.close()
     lesson = os.path.join(core.MEMORY_DIR, "dropped-leads.md")
     core.ensure_dirs()
     with open(lesson, "a", encoding="utf-8") as fh:

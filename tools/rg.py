@@ -5,6 +5,7 @@
 а не знать внутреннюю раскладку файлов.
 
   python tools/rg.py status | queue | next | tick | digest | weekly | doctor | calib
+  python tools/rg.py bottom run --iterations 1
   python tools/rg.py add "текст идеи" [--signals 3 --hours 4 ...]
   python tools/rg.py launch H-003 [--level L1]
   python tools/rg.py verdict H-003 --kind confirmed --actual 11.4 ...
@@ -15,6 +16,7 @@ from __future__ import annotations
 
 import sys
 
+import bottom_detection_cli
 import calib
 import core
 import dispatch
@@ -55,6 +57,7 @@ def main(argv: list[str]) -> int:
         "calib": lambda: calib.main([argv[0], "report"] + argv[2:]),
         "recalib": lambda: calib.main([argv[0], "apply"] + argv[2:]),
         "doctor": lambda: selfcheck.main([argv[0], "all"] + argv[2:]),
+        "bottom": lambda: bottom_detection_cli.main([argv[0]] + argv[2:]),
     }
     if cmd in ("help", "-h", "--help"):
         print(USAGE)

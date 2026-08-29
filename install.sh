@@ -184,6 +184,7 @@ src, dst, platform, debug, model, base, gpu_free, budget, approval, autolaunch =
 text = open(src, encoding="utf-8").read()
 repl = {
     "<<INSTALLER_PLATFORM>>": platform,
+    "<<INSTALLER_MODE>>": "debug" if debug.lower() == "true" else "production",
     "<<INSTALLER_DEBUG_MODE>>": debug,
     "<<INSTALLER_MODEL_NAME>>": model,
     "<<INSTALLER_MODEL_BASE_URL>>": base,
