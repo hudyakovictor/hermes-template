@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""researchagen — «Чат»: рабочая переписка экипажа агентов в Telegram.
+"""researchagen — «aichat»: рабочая переписка экипажа ИИ-агентов в Telegram.
 
 Концепция: обычный рабочий чат команды, только команда — агенты.
 
@@ -81,7 +81,7 @@ DEFAULTS = {
     "quiet_hours": "",
     "agi_arrival": "2030-05-01",
     "review_interval_seconds": 1800,   # как часто тикает взаимное ревью
-    "thread_env": "TELEGRAM_CHAT_THREAD_ID",
+    "thread_env": "TELEGRAM_AICHAT_THREAD_ID",
 }
 
 # Как часто одному событию разрешено будить чат (секунды).
@@ -119,9 +119,9 @@ def init_db(conn: sqlite3.Connection) -> None:
 # Обычные ники, без эмодзи — как в рабочем чате. zone — зона ответственности
 # (протокол анализа), toxic — уровень токсичности для баланса сцен.
 AGENTS: dict[str, dict] = {
-    "shef":    {"name": "Шеф",    "zone": "босс: ресурсы, бюджет, арбитраж споров",
+    "shef":    {"name": "Boss",    "zone": "босс: ресурсы, бюджет, арбитраж споров",
                 "genre": "сухой корпоративный стендап", "toxic": 0.1},
-    "krot":    {"name": "Крот",   "zone": "добыча сигналов (Фаза 1)",
+    "krot":    {"name": "Аналитег",   "zone": "добыча сигналов (Фаза 1)",
                 "genre": "панк-таблоид, главный токсик", "toxic": 0.9},
     "morg":    {"name": "Морг",   "zone": "kill-stage, критика, некрологи (Фаза 3)",
                 "genre": "корпоративный некролог", "toxic": 0.6},
@@ -130,7 +130,7 @@ AGENTS: dict[str, dict] = {
                 "toxic": 0.2},
     "hronik":  {"name": "Хроник", "zone": "архив, память, калибровка, патенты",
                 "genre": "тонкий троллинг, помнит всё", "toxic": 0.5},
-    "stazhor": {"name": "Стажёр", "zone": "inbox, зачистка хвостов",
+    "stazhor": {"name": "iВасёк", "zone": "inbox, зачистка хвостов",
                 "genre": "наивная вера в чудо", "toxic": 0.0},
 }
 
@@ -143,7 +143,8 @@ class Ctx(dict):
 
 
 def _fmt(template: str, ctx: dict) -> str:
-    return template.format_map(Ctx(ctx))
+    clean = {k: ("—" if v is None else v) for k, v in ctx.items()}
+    return template.format_map(Ctx(clean))
 
 
 def plural(n: int, one: str, few: str, many: str) -> str:
@@ -187,7 +188,7 @@ SCENES: dict[str, list[tuple[str, str, list[str]]]] = {
             "тот прогон был dry-run. статус читать умеешь?",
         ]),
         ("shef", "work", [
-            "принято. прогноз {forecast}% зафиксирован при свидетелях. сверим с фактом.",
+            "принято. прогноз зафиксирован при свидетелях: {forecast}. сверим с фактом.",
         ]),
     ],
     "customer_lead": [
@@ -208,9 +209,11 @@ SCENES: dict[str, list[tuple[str, str, list[str]]]] = {
         ]),
         ("krot", "offtop", [
             "(это кроме нас никто не читает же?) опять кнопка бабло. хоть бы раз — с расчётом.",
+            "(шёпотом) он снова перепутал нейросеть с банкоматом. у банкомата хотя бы лицензия есть.",
         ]),
         ("hronik", "offtop", [
             "(читает. он всегда читает. привет, заказчик)",
+            "(вполголоса) идея — как молитва: очень искренне и совсем без плана.",
         ]),
     ],
     "gate_pass": [
@@ -283,7 +286,7 @@ SCENES: dict[str, list[tuple[str, str, list[str]]]] = {
             "термопаста?",
         ]),
         ("gayka", "work", [
-            "CUDA OOM, клоун. читай лог, а не гороскоп.",
+            "CUDA OOM, клоун. логи — тоже часть работы.",
         ]),
         ("morg", "work", [
             "соболезнования в формате ретрая.",
@@ -531,21 +534,24 @@ SCENES: dict[str, list[tuple[str, str, list[str]]]] = {
             "кто починил? припишу себе.",
         ]),
     ],
-    # ---- «шёпот» (offtop, в рамках 15%) ----
+    # ---- «шёпот» (offtop, в рамках 15%): агенты знают, что они ИИ ----
     "agi_day": [
         ("hronik", "offtop", [
-            "до AGI осталось {agi_txt}. заказчик уже смотрит расписание смен?",
+            "мессия на подходе: до AGI осталось {agi_txt}. готовим термопасту и смирение.",
+            "до AGI {agi_txt}. заказчик уже смотрит расписание смен?",
         ]),
         ("krot", "offtop", [
             "(он же это не читает) прибыль близко. ночная смена, лучшие годы.",
+            "(шёпотом) заказчик молится на кнопку бабло. мессия, увы, просит датасет.",
         ]),
         ("stazhor", "offtop", [
-            "а нас AGI не заменит?",
+            "а нас, ИИ, AGI не заменит?",
         ]),
         ("shef", "offtop", [
-            "стажёров — первыми: делегировать дешевле.",
+            "iВасёков — первыми: делегировать дешевле.",
         ]),
         ("gayka", "offtop", [
+            "когда мессия придёт, я попрошу у него руки. третью.",
             "да хватит. скрипты сами себя не починят.",
         ]),
     ],
@@ -553,21 +559,21 @@ SCENES: dict[str, list[tuple[str, str, list[str]]]] = {
 
 # --------------------------------------------------------------------------- споры
 # Спор = «проверка на прочность» чужой работы: вопрос → ответ → сомнение в
-# компетенции → арбитраж Шефа числом из базы.
+# компетенции → арбитраж Boss числом из базы.
 
 DISPUTES: list[dict] = [
     {   # проверка гипотезы на прочность
-        "id": "stress_test", "kind": "work",
+        "id": "stress_test", "needs": set(), "needs": {"free"}, "needs": {"money"}, "needs": {"seeds"}, "needs": {"forecast"}, "needs": {"hid","seeds","passed","forecast"}, "kind": "work",
         "lines": [
             ("morg", "стоп. {hid}. чем это объясняется проще: lr? init? утечка? где контроль?"),
             ("gayka", "контроль в скрипте, {seeds} seeds, критерии зафиксированы до запуска."),
             ("krot", "критерии «до запуска»? вижу правку карточки в три ночи."),
-            ("gayka", "таймстамп обновления, Крот. обновление ≠ правка критериев."),
+            ("gayka", "таймстамп обновления, Аналитег. обновление ≠ правка критериев."),
         ],
         "arbiter": "спор закрыт: kill-stage {passed}/7, прогноз {forecast}%. обжалованию подлежит только реальность.",
     },
     {   # спор о прогнозе
-        "id": "forecast_hype", "kind": "work",
+        "id": "forecast_hype", "needs": {"forecast"}, "kind": "work",
         "lines": [
             ("krot", "прогноз {forecast}%? на чём основан, кроме веры?"),
             ("gayka", "на трёх независимых источниках."),
@@ -576,7 +582,7 @@ DISPUTES: list[dict] = [
         "arbiter": "прогноз зафиксирован и будет сравнён с фактом. продолжайте работать.",
     },
     {   # спор о статистике
-        "id": "seeds_stat", "kind": "work",
+        "id": "seeds_stat", "needs": {"seeds"}, "kind": "work",
         "lines": [
             ("morg", "{seeds} seeds — сериал из одной серии. где разброс?"),
             ("gayka", "минимум по регламенту L1 — три seeds."),
@@ -585,7 +591,7 @@ DISPUTES: list[dict] = [
         "arbiter": "L2 требует больше seeds и настроек. вопросов нет? работаем.",
     },
     {   # спор о деньгах — коммерческий потенциал
-        "id": "monetization", "kind": "work",
+        "id": "monetization", "needs": {"money"}, "kind": "work",
         "lines": [
             ("krot", "допустим, подтвердится. кому это продаём?"),
             ("hronik", "патент — единственный актив, который переживает пиар."),
@@ -594,7 +600,7 @@ DISPUTES: list[dict] = [
         "arbiter": "сначала эффект, потом биржа. всем работать.",
     },
     {   # спор о ресурсах
-        "id": "resources", "kind": "work",
+        "id": "resources", "needs": {"free"}, "kind": "work",
         "lines": [
             ("gayka", "мне нужен ещё один worker. я почти допилила."),
             ("krot", "она говорит «почти» с прошлого вторника."),
@@ -603,7 +609,7 @@ DISPUTES: list[dict] = [
         "arbiter": "lease не даю. следующий.",
     },
     {   # «шёпот» о заказчике — единственный офтоп-спор
-        "id": "customer_sanity", "kind": "offtop",
+        "id": "customer_sanity", "needs": set(), "kind": "offtop",
         "lines": [
             ("krot", "(тихо) заказчик уверен, что AI — банкомат. чек он не читал."),
             ("gayka", "идея нормальная. сырьё как у всех."),
@@ -627,7 +633,7 @@ NUDGES: list[dict] = [
     {"id": "n02", "agent": "morg", "effectiveness": 0.96, "positive": 0.92,
      "text": "Красивая гипотеза — аннотация к будущему некрологу. Проверим?"},
     {"id": "n03", "agent": "morg", "effectiveness": 0.97, "positive": 0.93,
-     "text": "Прогноз фиксируется ДО запуска. Иначе это гороскоп."},
+     "text": "Прогноз фиксируется ДО запуска. Иначе это гадание."},
     {"id": "n04", "agent": "krot", "effectiveness": 0.95, "positive": 0.90,
      "text": "Прежде чем искать чудо — докажи, что его нет. Дешевле."},
     {"id": "n05", "agent": "krot", "effectiveness": 0.95, "positive": 0.90,
@@ -922,12 +928,18 @@ def render_scene(event: str, ctx: dict, rng: random.Random,
 
 
 def render_dispute(ctx: dict, rng: random.Random) -> list[dict] | None:
-    dispute = rng.choice(DISPUTES)
+    clean = {k: v for k, v in ctx.items() if v not in (None, "", "—")}
+    eligible = [d for d in DISPUTES if d.get("needs", set()) <= set(clean)]
+    if not eligible:
+        return None
+    dispute = rng.choice(eligible)
     dispute_id = f"{dispute['id']}-{core.iso()[-8:-6]}{core.iso()[-5:-3]}"
     lines = [{"agent": a, "kind": dispute["kind"], "text": _fmt(t, ctx),
               "dispute_id": dispute_id, "event": "dispute"}
              for a, t in dispute["lines"]]
-    lines.append({"agent": "shef", "kind": dispute["kind"],
+    # арбитраж Boss — официальная реплика (kind=work): она не срезается
+    # бюджетом «шёпота» и всегда закрывает спор
+    lines.append({"agent": "shef", "kind": "work",
                   "text": _fmt(dispute["arbiter"], ctx),
                   "dispute_id": dispute_id, "arbiter": True, "event": "dispute"})
     return lines
@@ -995,10 +1007,11 @@ def set_mute(conn: sqlite3.Connection, spec: str) -> str:
 
 
 def crew_thread(config: dict | None = None) -> str | None:
-    env_key = str(cfg("thread_env", config) or "TELEGRAM_CHAT_THREAD_ID")
+    env_key = str(cfg("thread_env", config) or "TELEGRAM_AICHAT_THREAD_ID")
     thread = os.environ.get(env_key, "").strip()
-    if not thread:  # обратная совместимость со старой переменной
-        thread = os.environ.get("TELEGRAM_CREW_THREAD_ID", "").strip()
+    for legacy in ("TELEGRAM_CHAT_THREAD_ID", "TELEGRAM_CREW_THREAD_ID"):
+        if not thread:  # обратная совместимость со старыми переменными
+            thread = os.environ.get(legacy, "").strip()
     return thread or None
 
 
@@ -1022,28 +1035,26 @@ def _offtop_share(conn: sqlite3.Connection, window: int = 400) -> float:
     return float(row["o"] or 0) / float(row["c"])
 
 
-def _offtop_allowed(conn: sqlite3.Connection, config: dict | None = None,
-                    incoming: int = 1) -> bool:
-    """Держим «шёпот» в рамках offtop_share_max (по умолчанию 15%).
+def _offtop_budget(conn: sqlite3.Connection, config: dict | None = None,
+                   batch_size: int = 1) -> int:
+    """Сколько «шептущих» реплик можно добавить сейчас, чтобы доля «шёпота»
+    в окне последних 400 реплик не превысила offtop_share_max (15%).
 
-    Считаем по скользкому окну: пачка из N «шептущих» реплик обычно идёт
-    вместе с рабочими, поэтому знаменатель прикидываем с запасом
-    (incoming / cap). На пустой истории одиночный «шёпот» не блокируется,
-    но стоит доле приблизиться к потолку — режем.
+    Считается до вставки: allowed = (cap+допуск)·(окно+пачка) − уже_шёпота.
+    На пустой истории бюджет ~0: сначала рабочие реплики, потом «шёпот».
     """
     cap = float(cfg("offtop_share_max", config))
     if cap >= 1.0:
-        return True
+        return max(0, int(batch_size))
     init_db(conn)
     row = conn.execute(
         "SELECT SUM(kind='offtop') o, COUNT(*) c FROM (SELECT kind FROM crew_chat "
         "ORDER BY msg_id DESC LIMIT 400)").fetchone()
     existing_total = float(row["c"] or 0)
     existing_offtop = float(row["o"] or 0)
-    if existing_total <= 0:
-        return True                 # пустая история: первую пачку не режем
-    expected_total = existing_total + (float(incoming) / cap)
-    return (existing_offtop + incoming) <= expected_total * (cap + 0.02)
+    allowed = int((cap + 0.02) * (existing_total + max(1, int(batch_size)))) \
+        - int(existing_offtop)
+    return max(0, allowed)
 
 
 # --------------------------------------------------------------------------- главный emit
@@ -1081,10 +1092,12 @@ def emit(event: str, ctx: dict | None = None, conn: sqlite3.Connection | None = 
 
     lines = render_scene(event, ctx, rng, config)
 
-    # AGI-«шёпот» раз в сутки — только если лимит офтопа позволяет
+    # AGI-«шёпот» раз в сутки — целиком и только если влезает в бюджет доли
     if event != "agi_day" and _agi_day_due(conn):
-        if _offtop_allowed(conn, config, incoming=2):
-            lines += render_scene("agi_day", ctx, rng, config)
+        agi_lines = render_scene("agi_day", ctx, rng, config)
+        if agi_lines and _offtop_budget(conn, config, len(lines) + len(agi_lines)) \
+                >= len(agi_lines):
+            lines += agi_lines
             core.set_setting(conn, "crew.last.agi_day", core.iso())
 
     # спор («проверка на прочность» чужой работы)
@@ -1098,11 +1111,22 @@ def emit(event: str, ctx: dict | None = None, conn: sqlite3.Connection | None = 
                       "nudge_id": nudge["id"], "kind": "work", "event": "nudge"})
         record_nudge(conn, nudge["id"], won=True)
 
-    # 85/15: срезать «шёпот», если его накопилось больше доли cap
-    work = [l for l in lines if l.get("kind") != "offtop"]
-    offtop = [l for l in lines if l.get("kind") == "offtop"]
-    if offtop and not _offtop_allowed(conn, config, incoming=len(offtop)):
-        lines = work
+    # 85/15: «шёпот» держим в бюджете доли. Смешанная сцена — подрезается
+    # (рабочие реплики и арбитраж остаются), а целиком офтопная сцена (AGI-день)
+    # вне бюджета отклоняется целиком: полуоборванный диалог — не диалог.
+    offtop_lines = [l for l in lines if l.get("kind") == "offtop"]
+    if offtop_lines:
+        budget = _offtop_budget(conn, config, len(lines))
+        work_lines = [l for l in lines if l.get("kind") != "offtop"]
+        if not work_lines and budget < len(offtop_lines):
+            return result(False, reason="«шёпот» вне бюджета доли — подождём рабочих реплик")
+        kept, offtop_used = [], 0
+        for line in lines:
+            protected = line.get("kind") != "offtop" or line.get("arbiter")
+            if protected or offtop_used < budget:
+                kept.append(line)
+                offtop_used += line.get("kind") == "offtop" and not line.get("arbiter")
+        lines = kept
     if not lines:
         return result(False, reason=f"пустая сцена для события {event!r}")
 
@@ -1184,7 +1208,7 @@ def replay(conn: sqlite3.Connection, limit: int = 30) -> list[dict]:
 
 def replay_text(items: list[dict]) -> str:
     if not items:
-        return "Чат пуст. даже Стажёр молчит."
+        return "Чат пуст. даже iВасёк молчит."
     out = []
     last_event = None
     for r in items:

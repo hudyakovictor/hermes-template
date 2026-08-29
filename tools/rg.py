@@ -12,7 +12,8 @@
   python tools/rg.py pause | resume | approve H-007
   python tools/rg.py governor plan | mode | reserve | report
   python tools/rg.py benchmark --concurrencies 1,2
-  python tools/rg.py chat [--n 30]                  # история чата экипажа
+  python tools/rg.py panel [--send]               # панель: стадии + пульт
+  python tools/rg.py aichat [--n 30]              # история чата экипажа
   python tools/rg.py crew emit|replay|review|stats|mute|test
 """
 
@@ -43,6 +44,7 @@ def main(argv: list[str]) -> int:
 
     routes = {
         "status": lambda: report.main([argv[0], "status"] + argv[2:]),
+        "panel": lambda: report.main([argv[0], "panel"] + argv[2:]),
         "digest": lambda: report.main([argv[0], "digest"] + argv[2:]),
         "weekly": lambda: report.main([argv[0], "weekly"] + argv[2:]),
         "patent": lambda: report.main([argv[0], "patent"] + argv[2:]),
@@ -67,6 +69,7 @@ def main(argv: list[str]) -> int:
         "recalib": lambda: calib.main([argv[0], "apply"] + argv[2:]),
         "doctor": lambda: selfcheck.main([argv[0], "all"] + argv[2:]),
         "bottom": lambda: bottom_detection_cli.main([argv[0]] + argv[2:]),
+        "aichat": lambda: crew.main([argv[0], "replay"] + argv[2:]),
         "chat": lambda: crew.main([argv[0], "replay"] + argv[2:]),
         "gossip": lambda: crew.main([argv[0], "replay"] + argv[2:]),
         "crew": lambda: crew.main([argv[0]] + argv[2:]),

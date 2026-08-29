@@ -116,7 +116,7 @@ $TgToken = Ask-Required 'Токен бота (BotFather)'
 if ($TgToken -notmatch ':') { Write-Warn 'Токен без двоеточия выглядит неверно - проверьте' }
 $TgChat = Ask-Required 'chat_id рабочего чата/группы'
 $TgThread = Ask "thread_id темы 'Штаб' (Enter = общий чат)" ''
-$TgChatThread = Ask "thread_id темы 'Чат' для переписки агентов (Enter = только база)" ''
+$TgAichatThread = Ask "thread_id темы 'aichat' для переписки агентов (Enter = только база)" ''
 Write-Hint 'Оба пользователя в списке видят один и тот же статус, очередь и историю.'
 $TgUser1 = Ask-Required 'user_id пользователя 1'
 $TgUser2 = Ask 'user_id пользователя 2 (Enter = пропустить)' ''
@@ -203,7 +203,7 @@ $envLines = @(
     "TELEGRAM_BOT_TOKEN=$TgToken",
     "TELEGRAM_HOME_CHANNEL=$TgChat",
     "TELEGRAM_CRON_THREAD_ID=$TgThread",
-    "TELEGRAM_CHAT_THREAD_ID=$TgChatThread",
+    "TELEGRAM_AICHAT_THREAD_ID=$TgAichatThread",
     "TELEGRAM_ALLOWED_USERS=$TgUsers",
     "RESEARCHAGEN_MODEL_BASE_URL=$ModelBase",
     "RESEARCHAGEN_MODEL_NAME=$ModelName",

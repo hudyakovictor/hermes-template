@@ -111,6 +111,12 @@ quick_commands:
   st:
     type: exec
     command: python tools/rg.py status
+  panel:
+    type: exec
+    command: python tools/rg.py panel
+  aichat:
+    type: exec
+    command: python tools/rg.py aichat --n 40
   doctor:
     type: exec
     command: python tools/selfcheck.py all
@@ -131,7 +137,7 @@ platforms:
       command_menu:
         max_commands: 60
         priority_mode: prepend
-        priority: [pool, next, dr, add, launch, v, h, digest, gpu, governor, auto]
+        priority: [panel, pool, next, dr, add, launch, v, h, digest, gpu, governor, auto, aichat]
       dm_topics:
         - chat_id: ${TELEGRAM_HOME_CHANNEL}     # <<INSTALLER>>
           ignore_root_dm: false
@@ -141,7 +147,7 @@ platforms:
             - { name: "📋 Очередь",      icon_color: 9367192,  skill: pool }
             - { name: "🧪 Эксперименты", icon_color: 4368165,  skill: launch }
             - { name: "⚖️ Вердикты",     icon_color: 16753697, skill: verdict }
-            - { name: "💬 Чат",          icon_color: 16749890, skill: chat }
+            - { name: "💬 aichat",        icon_color: 16749890, skill: aichat }
 
 gateway:
   streaming:
@@ -218,11 +224,11 @@ researchagen:
   telegram:
     progress_every_seconds: 900                # карточка прогресса не чаще раза в 15 мин
     digest_hour: 9
-  crew:                                        # «Чат»: рабочая переписка экипажа
+  crew:                                        # «aichat»: рабочая переписка экипажа ИИ-агентов
     enabled: true
-    # Топик «💬 Чат»: его thread_id в .env (TELEGRAM_CHAT_THREAD_ID).
+    # Топик «💬 aichat»: его thread_id в .env (TELEGRAM_AICHAT_THREAD_ID).
     # Нет топика — переписка пишется только в базу, контур не страдает.
-    thread_env: TELEGRAM_CHAT_THREAD_ID
+    thread_env: TELEGRAM_AICHAT_THREAD_ID
     max_messages_per_day: 30                   # жёсткий бюджет сообщений в сутки
     max_lines_per_event: 5                     # реплик на одну сцену
     dispute_probability: 0.35                  # шанс спора-«проверки на прочность»

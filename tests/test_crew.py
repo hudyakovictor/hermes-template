@@ -48,6 +48,7 @@ class CrewBase(unittest.TestCase):
         patcher = mock.patch.object(crew.tg, "send", return_value={"ok": True})
         self.tg_send = patcher.start()
         self.addCleanup(patcher.stop)
+        os.environ.pop("TELEGRAM_AICHAT_THREAD_ID", None)
         os.environ.pop("TELEGRAM_CHAT_THREAD_ID", None)
         os.environ.pop("TELEGRAM_CREW_THREAD_ID", None)
 
@@ -64,7 +65,7 @@ class TestFormatting(CrewBase):
     def test_nicks_have_no_emoji_and_look_like_handles(self):
         for agent in crew.AGENTS.values():
             self.assertIsNone(EMOJI_RE.search(agent["name"]), agent["name"])
-            self.assertLessEqual(len(agent["name"]), 7)
+            self.assertLessEqual(len(agent["name"]), 9)
             self.assertTrue(agent["zone"].strip())
 
     def test_message_format_is_nick_bold_colon_text(self):
@@ -126,6 +127,57 @@ class TestScenes(CrewBase):
 
 
 class TestShare85x15(CrewBase):
+    def test_offtop_declined_on_empty_history(self):
+        # сцена целиком из «шёпота» на пустой истории отклоняется целиком
+        res = self.emit("agi_day", {"agi": 10, "agi_txt": "10 дней"}, force=True)
+        self.assertFalse(res["ok"])
+        self.assertEqual(crew._offtop_share(self.conn), 0.0)
+
+    def test_offtop_fits_after_work_history(self):
+        # после чисто рабочих реплик суточная AGI-сцена встраивается сама
+        # (cooldown 20 ч) — и доля «шёпота» остаётся в потолке
+        cfg = {"researchagen": dict(CREW_CONFIG["researchagen"])}
+        cfg["researchagen"]["crew"] = dict(CREW_CONFIG["researchagen"]["crew"],
+                                           dispute_probability=0.0)
+        for _ in range(6):
+            crew.emit("launch", {"hid": "H-020", "burn": 1, "budget": 20,
+                                 "level": "L0"}, conn=self.conn, config=cfg,
+                      rng=self.rng, force=True)
+        share = crew._offtop_share(self.conn)
+        self.assertGreater(share, 0.0)          # «шёпот» появился
+        self.assertLessEqual(share, 0.21)       # и не пробил потолок
+
+    def test_budget_formula_is_monotonic(self):
+        b0 = crew._offtop_budget(self.conn, CREW_CONFIG, 10)
+        self.assertGreaterEqual(b0, 0)
+        for _ in range(5):   # рабочая история растёт — бюджет шёпота растёт
+            self.emit("kill", {"hid": "H-021"}, force=True)
+        self.assertGreaterEqual(crew._offtop_budget(self.conn, CREW_CONFIG, 10), b0)
+
+    def test_arbiter_is_never_trimmed(self):
+        # спор о заказчике (offtop) не теряет арбитраж Boss при подрезке
+        cfg = {"researchagen": dict(CREW_CONFIG["researchagen"])}
+        cfg["researchagen"]["crew"] = dict(CREW_CONFIG["researchagen"]["crew"],
+                                           dispute_probability=1.0)
+        for _ in range(4):
+            crew.emit("customer_lead", {"forecast": 1}, conn=self.conn, config=cfg,
+                      rng=self.rng, force=True)
+        disputes = [r for r in crew.replay(self.conn, 400) if r.get("dispute_id")]
+        by_id: dict[str, list] = {}
+        for r in disputes:
+            by_id.setdefault(r["dispute_id"], []).append(r)
+        self.assertTrue(by_id)
+        for lines in by_id.values():
+            self.assertEqual(lines[-1]["agent"], "shef")
+            self.assertEqual(lines[-1]["kind"], "work")
+
+    def test_none_ctx_renders_dash(self):
+        # симуляция поймала: None в контексте печаться как «None%»
+        res = self.emit("hypo_new", {"hid": "H-022", "forecast": None}, force=True)
+        self.assertTrue(res["ok"])
+        for line in res["lines"]:
+            self.assertNotIn("None", line["text"])
+
     def test_work_scenes_are_kind_work(self):
         for event in ("hypo_new", "gate_pass", "launch", "verdict_confirmed"):
             res = self.emit(event, {"hid": "H-004", "forecast": 5, "seeds": 3,
@@ -133,18 +185,6 @@ class TestShare85x15(CrewBase):
                                     "budget": 20, "burn": 1, "dev": "+10%"}, force=True)
             work = [l for l in res["lines"] if l.get("kind") == "work"]
             self.assertTrue(work, event)
-
-    def test_offtop_capped_by_share(self):
-        # плотный «шёпот»: сцена agi_day полностью offtop
-        for _ in range(3):
-            self.emit("agi_day", {"agi": 10, "agi_txt": "10 дней"}, force=True)
-        share = crew._offtop_share(self.conn)
-        self.assertGreater(share, 0)
-        # пока доля выше потолка, новый «шёпот» не проходит
-        self.assertFalse(crew._offtop_allowed(self.conn, CREW_CONFIG, incoming=1))
-
-    def test_offtop_allowed_on_clean_history(self):
-        self.assertTrue(crew._offtop_allowed(self.conn, CREW_CONFIG, incoming=1))
 
 
 class TestBudgetAndGuards(CrewBase):
@@ -158,7 +198,7 @@ class TestBudgetAndGuards(CrewBase):
         cfg = {"researchagen": dict(CREW_CONFIG["researchagen"])}
         cfg["researchagen"]["crew"] = dict(CREW_CONFIG["researchagen"]["crew"],
                                            max_messages_per_day=2)
-        with mock.patch.dict(os.environ, {"TELEGRAM_CHAT_THREAD_ID": "777"}):
+        with mock.patch.dict(os.environ, {"TELEGRAM_AICHAT_THREAD_ID": "777"}):
             for _ in range(5):
                 crew.emit("verdict_confirmed", {"hid": "H-007"}, conn=self.conn,
                           config=cfg, rng=self.rng)
@@ -169,14 +209,14 @@ class TestBudgetAndGuards(CrewBase):
         cfg = {"researchagen": dict(CREW_CONFIG["researchagen"])}
         cfg["researchagen"]["crew"] = dict(CREW_CONFIG["researchagen"]["crew"],
                                            quiet_hours="00:00-23:59")
-        with mock.patch.dict(os.environ, {"TELEGRAM_CHAT_THREAD_ID": "777"}):
+        with mock.patch.dict(os.environ, {"TELEGRAM_AICHAT_THREAD_ID": "777"}):
             res = crew.emit("launch", {"hid": "H-008"}, conn=self.conn, config=cfg,
                             rng=self.rng)
         self.assertTrue(res["ok"])
         self.assertFalse(res["sent"])
 
     def test_mute_pauses_delivery_and_unmutes(self):
-        with mock.patch.dict(os.environ, {"TELEGRAM_CHAT_THREAD_ID": "777"}):
+        with mock.patch.dict(os.environ, {"TELEGRAM_AICHAT_THREAD_ID": "777"}):
             crew.set_mute(self.conn, "2h")
             res = self.emit("launch", {"hid": "H-009"}, force=True)
             self.assertTrue(res["ok"])
@@ -202,7 +242,7 @@ class TestBudgetAndGuards(CrewBase):
 
     def test_safe_emit_swallows_tg_exceptions(self):
         with mock.patch.object(crew.tg, "send", side_effect=RuntimeError("boom")):
-            with mock.patch.dict(os.environ, {"TELEGRAM_CHAT_THREAD_ID": "777"}):
+            with mock.patch.dict(os.environ, {"TELEGRAM_AICHAT_THREAD_ID": "777"}):
                 crew.safe_emit("launch", {"hid": "H-011"}, conn=self.conn,
                                config=CREW_CONFIG)
         n = self.conn.execute("SELECT COUNT(*) FROM crew_chat").fetchone()[0]
@@ -238,7 +278,8 @@ class TestReview(CrewBase):
                      '    passed: true\n    evidence: "lr ablation in exp-1"\n')
         data2 = crew.run_review(self.conn, CREW_CONFIG, emit_scenes=False)
         self.assertEqual(crew.open_count(self.conn), 0)
-        self.assertTrue(any("fake_evidence" in f["id"] for f in [] ) or True)
+        self.assertTrue(any(f["finding_id"].startswith("fake_evidence")
+                            for f in data2["resolved"]))
 
     def test_weak_signals_and_no_forecast_found(self):
         self._add_hypo("H-101", signals=2, forecast=None, age_days=2)
@@ -257,7 +298,7 @@ class TestReview(CrewBase):
 
     def test_review_emits_chat_scenes(self):
         self._add_hypo("H-104", signals=1)
-        with mock.patch.dict(os.environ, {"TELEGRAM_CHAT_THREAD_ID": "777"}):
+        with mock.patch.dict(os.environ, {"TELEGRAM_AICHAT_THREAD_ID": "777"}):
             crew.run_review(self.conn, CREW_CONFIG, emit_scenes=True)
         events = {r["event"] for r in crew.replay(self.conn, 50)}
         self.assertIn("review_weak_signals", events)

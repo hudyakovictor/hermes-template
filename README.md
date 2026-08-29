@@ -76,7 +76,7 @@ researchagen chat            # ручная сессия, когда нужно 
 Исследование: `/dr` `/mine` `/h` `/kill` `/bottom`
 Исполнение: `/pool` `/next` `/launch` `/preempt` `/v`
 Управление: `/auto` `/governor` `/panel` `/digest` `/gpu` `/calib` `/patent` `/add` `/board` `/doctor`
-Наблюдение: `/chat` — переписка экипажа (споры, ревью косяков, некрологи гипотез)
+Управление и наблюдение: `/panel` — все стадии + пульт; `/aichat` — переписка экипажа
 
 `/bottom` — опциональный гибридный Bottom Detection: дерево регионов,
 backtracking, transformations и async evaluators. Он не обходит kill-stage,

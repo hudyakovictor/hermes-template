@@ -230,6 +230,96 @@ def patent(conn, hid: str) -> dict:
     return {"path": path, "text": text}
 
 
+def panel(conn, config: dict | None = None) -> dict:
+    """Одна экран-карта всех рабочих процессов по стадиям + пульт управления.
+
+    Это «приборка» для Telegram: семь стадий конура сверху вниз и список
+    команд, которыми человек может вмешаться. Всё остальное время агенты
+    работают автономно; главный агент (parent Hermes) следит за контуром
+    через governor, а не через этот текст.
+    """
+    config = config if config is not None else core.load_config()
+    st = status(conn, config)
+
+    # 1. Сырьё
+    inbox_new = 0
+    inbox_path = os.path.join(core.INBOX_DIR, "inbox.jsonl")
+    if os.path.exists(inbox_path):
+        with open(inbox_path, "r", encoding="utf-8") as fh:
+            inbox_new = sum(1 for line in fh if line.strip()
+                            and '"state": "new"' in line)
+    signals_n = len([f for f in os.listdir(core.SIGNALS_DIR)
+                     if f.endswith(".md")]) if os.path.isdir(core.SIGNALS_DIR) else 0
+
+    # 2. Очередь
+    top = sorted(st.get("planned", []), key=lambda i: -i.get("ppi", 0))[:3]
+    top_s = ", ".join(f"{i['id']} ({i.get('ppi', 0):.2f})" for i in top) or "—"
+
+    # 3. Прогон
+    runs = []
+    for r in st.get("running", []):
+        started = core.parse_iso(r.get("started_at"))
+        elapsed = core.human_delta((core.now() - started).total_seconds()) if started else "—"
+        runs.append(f"{r['hypo_id']} {r['level']}, {elapsed}"
+                    + (" (dry-run)" if r.get("dry_run") else ""))
+
+    # 4. Вердикты
+    cal = st.get("calibration", {})
+    mae = cal.get("mean_abs_deviation_pct")
+    hit = cal.get("hit_rate")
+    verdicts_s = (f"{cal.get('verdicts', 0)} всего, MAE "
+                  f"{'—' if mae is None else mae}%, "
+                  f"hit-rate {'—' if hit is None else hit}")
+
+    # 5-6. Ревью и aichat — безопасно: чат не должен ломать панель
+    try:
+        review_open = crew.open_count(conn)
+    except Exception:  # noqa: BLE001
+        review_open = "—"
+    try:
+        chat = crew.stats(conn, config)
+        chat_s = (f"{chat['total_lines']} реплик, «шёпота» "
+                  f"{chat['offtop_share']:.0%} (лимит {chat['offtop_cap']:.0%})"
+                  + (f", мьют до {chat['muted_until'][11:16]} UTC"
+                     if chat.get("muted_until") else ""))
+    except Exception:  # noqa: BLE001
+        chat_s = "—"
+
+    auto = "выкл (/resume)" if st.get("paused") else "вкл"
+    data = {
+        "stages": {
+            "сырьё": f"inbox новых {inbox_new}, сигналов {signals_n}",
+            "очередь": f"живых {st.get('live_total', 0)}; топ: {top_s}; "
+                       f"на чекпойнте {len(st.get('at_checkpoint', []))}",
+            "прогон": runs[0] if runs else "—",
+            "вердикты": verdicts_s,
+            "ревью": f"открытых замечаний {review_open}",
+            "aichat": chat_s,
+            "ресурсы": (f"GPU free {st['gpu']['free_gb']:.1f} GB, "
+                        f"сегодня {st['gpu_hours_today']:.1f}/"
+                        f"{st['gpu_hours_budget']:.0f} GPU-ч, "
+                        f"автозапуск {auto}"),
+        },
+        "controls": [
+            "/pause /resume — стоп/старт автозапусков",
+            "/launch H-XXX — запуск; /approve H-XXX — разрешить дорогой",
+            "/v H-XXX — вердикт; /kill H-XXX — снять гипотезу",
+            "/add — идея в inbox (конвейер тот же)",
+            "/aichat — чат экипажа; crew mute 2h — мьют доставок",
+            "/crew review — взаимное ревью сейчас; /doctor — самопроверка",
+        ],
+    }
+    lines = ["🎛 Панель researchagen"]
+    icons = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣"]
+    for icon, (name, value) in zip(icons, data["stages"].items()):
+        lines.append(f"{icon} {name.capitalize()}: {value}")
+    lines.append("")
+    lines.append("Пульт (в остальном — полная автономия):")
+    lines += [f"• {c}" for c in data["controls"]]
+    data["text"] = "\n".join(lines)
+    return data
+
+
 def main(argv: list[str]) -> int:
     core.load_env()
     config = core.load_config()
@@ -240,6 +330,12 @@ def main(argv: list[str]) -> int:
     if cmd == "status":
         data = status(conn, config)
         core.emit(data, as_json, status_text(data))
+        return 0
+    if cmd == "panel":
+        data = panel(conn, config)
+        if core.flag(argv, "send"):
+            tg.send(data["text"])
+        core.emit(data, as_json, data["text"])
         return 0
     if cmd == "digest":
         data = digest(conn, config)

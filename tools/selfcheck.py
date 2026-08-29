@@ -197,15 +197,17 @@ def check_chat() -> list[dict]:
         n = int(conn.execute("SELECT COUNT(*) FROM crew_chat").fetchone()[0])
         conn.close()
         out.append(_check("чат экипажа (таблица)", OK,
-                          f"crew_chat доступна, реплик: {n} (/chat)"))
+                          f"crew_chat доступна, реплик: {n} (/aichat)"))
     except Exception as exc:  # noqa: BLE001
         out.append(_check("чат экипажа (таблица)", FAIL, str(exc)))
     env = core.load_env()
-    thread = env.get("TELEGRAM_CHAT_THREAD_ID", "") or env.get("TELEGRAM_CREW_THREAD_ID", "")
+    thread = (env.get("TELEGRAM_AICHAT_THREAD_ID", "")
+              or env.get("TELEGRAM_CHAT_THREAD_ID", "")
+              or env.get("TELEGRAM_CREW_THREAD_ID", ""))
     out.append(_check("чат экипажа (топик)",
                       OK if thread else WARN,
                       thread if thread else
-                      "TELEGRAM_CHAT_THREAD_ID пуст: переписка только в базе (/chat)"))
+                      "TELEGRAM_AICHAT_THREAD_ID пуст: переписка только в базе (/aichat)"))
     return out
 
 
