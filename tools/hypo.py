@@ -258,8 +258,15 @@ def main(argv: list[str]) -> int:
         row = q.add(conn, title, **kw)
         path = write_card(row["id"], title, **kw)
         q.update_fields(conn, row["id"], card_path=path)
+        config = core.load_config()
+        ppi = q.ppi(dict(row), config)
         crew.safe_emit("customer_lead" if kw.get("source") == "human" else "hypo_new",
-                       conn=conn, ctx={"hid": row["id"], "forecast": kw.get("forecast"),
+                       conn=conn, ctx={"hid": row["id"],
+                                       "forecast": "—" if row["forecast"] is None
+                                       else f"{row['forecast']:g}%",
+                                       "ppi": f"{ppi:.2f}",
+                                       "hours": f"{float(row['est_hours']):g}",
+                                       "signals": kw.get("signals", 0),
                                        "title": title})
         core.emit({"id": row["id"], "card": path}, as_json,
                   f"Создана {row['id']}: {os.path.relpath(path, core.ROOT)}\n"

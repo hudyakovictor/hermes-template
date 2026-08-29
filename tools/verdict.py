@@ -124,7 +124,8 @@ def record(conn, hid: str, kind: str, actual=None, seeds_pass: int = 0,
         "actual": "—" if actual in (None, "") else f"{float(actual):g}%",
         "dev": None if dev is None else f"{dev:+.0f}%",
         "hours": f"{float(gpu_hours):.1f}",
-        "seeds": f"{int(seeds_pass)}/{int(seeds_total)}"})
+        "seeds": (f"{int(seeds_pass)}/{int(seeds_total)}"
+                  if int(seeds_total) else "сольно")})
     return {"ok": True, "id": hid, "kind": kind, "deviation": dev,
             "text": text, "report": path, "governor": governor_result}
 

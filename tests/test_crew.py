@@ -348,6 +348,43 @@ class TestReview(CrewBase):
         self.assertEqual(data["fresh"], [])
 
 
+class TestJokes(CrewBase):
+    def test_joke_bank_has_layers_and_mechanisms(self):
+        for joke in crew.JOKES:
+            self.assertTrue(joke["text"].strip())
+            self.assertGreaterEqual(len(joke["mechs"]), 2, joke["text"][:30])
+
+    def test_render_joke_intensity_gates(self):
+        rng = random.Random(1)
+        seen_none, seen_tag = False, False
+        for _ in range(300):
+            joke = crew.render_joke(rng)
+            if joke is None:
+                seen_none = True
+            else:
+                self.assertNotIn("{", joke["text"])
+                self.assertLessEqual(len(joke["text"]), 200)
+                if joke["joke_meta"]["intensity"] >= 75:
+                    seen_tag = seen_tag or True
+        self.assertTrue(seen_none, "низкая интенсивность иногда должна резать шутку")
+        self.assertTrue(seen_tag, "высокая интенсивность иногда должна давать Tag")
+
+    def test_render_joke_is_deterministic(self):
+        self.assertEqual(crew.render_joke(random.Random(9))["text"],
+                         crew.render_joke(random.Random(9))["text"])
+
+    def test_joke_in_scene_when_probability_is_one(self):
+        cfg = {"researchagen": dict(CREW_CONFIG["researchagen"])}
+        cfg["researchagen"]["crew"] = dict(CREW_CONFIG["researchagen"]["crew"],
+                                           joke_probability=1.0)
+        events = set()
+        for i in range(60):
+            res = crew.emit("kill", {"hid": f"H-04{i}"}, conn=self.conn, config=cfg,
+                            rng=random.Random(i), force=True)
+            events |= {l["event"] for l in res["lines"]}
+        self.assertIn("joke", events)   # при p=1 и 60 бросках точно хотя бы раз
+
+
 class TestNudges(CrewBase):
     def test_nudge_metadata_is_sane(self):
         for n in crew.NUDGES:

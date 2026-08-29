@@ -187,6 +187,7 @@ def run_sim(index: int, seed: int, verbose: bool = False) -> list[str]:
                 "customer_share_max": 0.06, "noise_share_max": 0.03,
                 "customer_line_probability": rng.choice([0.0, 0.25, 0.8]),
                 "noise_line_probability": rng.choice([0.0, 0.1, 0.5]),
+                "joke_probability": rng.choice([0.0, 0.15, 0.6]),
                 "quiet_hours": "", "agi_arrival": "2030-05-01",
             },
         }

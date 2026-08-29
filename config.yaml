@@ -237,6 +237,7 @@ researchagen:
     noise_share_max: 0.03                     # потолок «кек/лол/епт» (~2%)
     customer_line_probability: 0.25           # шанс такой реплики в сцене
     noise_line_probability: 0.10
+    joke_probability: 0.15            # шанс 7-слойной шутки (интенсивность 0–100)
     review_interval_seconds: 1800              # период взаимного ревью (косяки)
     quiet_hours: ""                            # например "23:00-07:59": ночью только в лог
     agi_arrival: "2030-05-01"                  # Часы AGI для «шёпота»
