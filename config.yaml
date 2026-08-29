@@ -111,6 +111,12 @@ quick_commands:
   st:
     type: exec
     command: python tools/rg.py status
+  panel:
+    type: exec
+    command: python tools/rg.py panel
+  aichat:
+    type: exec
+    command: python tools/rg.py aichat --n 40
   doctor:
     type: exec
     command: python tools/selfcheck.py all
@@ -131,7 +137,7 @@ platforms:
       command_menu:
         max_commands: 60
         priority_mode: prepend
-        priority: [pool, next, dr, add, launch, v, h, digest, gpu, governor, auto]
+        priority: [panel, pool, next, dr, add, launch, v, h, digest, gpu, governor, auto, aichat]
       dm_topics:
         - chat_id: ${TELEGRAM_HOME_CHANNEL}     # <<INSTALLER>>
           ignore_root_dm: false
@@ -141,6 +147,7 @@ platforms:
             - { name: "📋 Очередь",      icon_color: 9367192,  skill: pool }
             - { name: "🧪 Эксперименты", icon_color: 4368165,  skill: launch }
             - { name: "⚖️ Вердикты",     icon_color: 16753697, skill: verdict }
+            - { name: "💬 aichat",        icon_color: 16749890, skill: aichat }
 
 gateway:
   streaming:
@@ -217,6 +224,23 @@ researchagen:
   telegram:
     progress_every_seconds: 900                # карточка прогресса не чаще раза в 15 мин
     digest_hour: 9
+  crew:                                        # «aichat»: рабочая переписка экипажа ИИ-агентов
+    enabled: true
+    # Топик «💬 aichat»: его thread_id в .env (TELEGRAM_AICHAT_THREAD_ID).
+    # Нет топика — переписка пишется только в базу, контур не страдает.
+    thread_env: TELEGRAM_AICHAT_THREAD_ID
+    max_messages_per_day: 100                  # жёсткий бюджет сообщений в сутки
+    max_lines_per_event: 5                     # реплик на одну сцену
+    dispute_probability: 0.35                  # шанс спора-«проверки на прочность»
+    nudge_probability: 0.20                    # шанс фразы-нуджа (приоры 95%/90%)
+    customer_share_max: 0.06                   # потолок реплик про заказчика/AGI (~5%)
+    noise_share_max: 0.03                     # потолок «кек/лол/епт» (~2%)
+    customer_line_probability: 0.25           # шанс такой реплики в сцене
+    noise_line_probability: 0.10
+    joke_probability: 0.15            # шанс 7-слойной шутки (интенсивность 0–100)
+    review_interval_seconds: 1800              # период взаимного ревью (косяки)
+    quiet_hours: ""                            # например "23:00-07:59": ночью только в лог
+    agi_arrival: "2030-05-01"                  # Часы AGI для «шёпота»
   bottom_detection:                            # гибридный поисковый слой
     enabled: true
     domain: training-dynamics

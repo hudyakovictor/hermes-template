@@ -135,6 +135,9 @@ def run(max_hours: float = 24.0) -> dict:
 
 
 def main(argv: list[str]) -> int:
+    if argv[1:2] and argv[1] in ("help", "-h", "--help"):
+        print(__doc__)
+        return 0
     core.load_env()
     as_json = core.wants_json(argv)
     data = run(float(core.arg(argv, "max-run-hours", 24.0)))

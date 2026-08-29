@@ -113,6 +113,7 @@ case "$TG_TOKEN" in
 esac
 TG_CHAT="$(ask_req "  chat_id рабочего чата/группы")"
 TG_THREAD="$(ask "  thread_id темы 'Штаб' (Enter = общий чат)" "")"
+TG_AICHAT_THREAD="$(ask "  thread_id темы 'aichat' для переписки агентов (Enter = только база)" "")"
 say "${DIM}  Оба пользователя должны быть в списке — тогда они видят одну и ту же картину.${OFF}"
 TG_USER1="$(ask_req "  user_id пользователя 1")"
 TG_USER2="$(ask "  user_id пользователя 2 (Enter = пропустить)" "")"
@@ -210,6 +211,7 @@ umask 077
 	printf 'TELEGRAM_BOT_TOKEN=%s\n' "$TG_TOKEN"
 	printf 'TELEGRAM_HOME_CHANNEL=%s\n' "$TG_CHAT"
 	printf 'TELEGRAM_CRON_THREAD_ID=%s\n' "$TG_THREAD"
+	printf 'TELEGRAM_AICHAT_THREAD_ID=%s\n' "$TG_AICHAT_THREAD"
 	printf 'TELEGRAM_ALLOWED_USERS=%s\n' "$TG_USERS"
 	printf 'RESEARCHAGEN_MODEL_BASE_URL=%s\n' "$MODEL_BASE"
 	printf 'RESEARCHAGEN_MODEL_NAME=%s\n' "$MODEL_NAME"

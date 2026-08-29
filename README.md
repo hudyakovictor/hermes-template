@@ -23,6 +23,7 @@
 | Решения о fan-out/GPU принимает код | Dynamic capacity, VRAM/utilization, pause/resume, суточный budget и experiment lock — в `tools/governor.py`/`tools/dispatch.py`, а не только в промпте |
 | Ни одного внешнего пакета | Только Python stdlib, `sh` и PowerShell 5.1 |
 | Телеметрия и управление в Telegram | Управление — штатный шлюз Hermes; телеметрия — отправка только через Bot API (второго long-polling нет) |
+| Рабочий чат экипажа (aichat) | `tools/crew.py`: Boss, Скиф, Аналитег, Морг, Гайка, Хроник, iВасёк — обсуждение работы, споры и взаимное ревью косяков, потенциал гипотез и патентов; ~5% реплик про заказчика и «мессию AGI», ~2% «кек/лол»; 0 GPU-ч, 0 токенов (`/aichat`) |
 | Два пользователя — одна картина | Единая SQLite в `state/`, любой `/status` читает одни и те же факты |
 | Защита от самообмана | Прогноз фиксируется ДО прогона; вердикт без прогноза невозможен; еженедельная калибровка весов |
 | Граница двух агентов | `selfcheck.py` проверяет, что токен не совпадает с токеном соседнего профиля |
@@ -75,6 +76,7 @@ researchagen chat            # ручная сессия, когда нужно 
 Исследование: `/dr` `/mine` `/h` `/kill` `/bottom`
 Исполнение: `/pool` `/next` `/launch` `/preempt` `/v`
 Управление: `/auto` `/governor` `/panel` `/digest` `/gpu` `/calib` `/patent` `/add` `/board` `/doctor`
+Управление и наблюдение: `/panel` — все стадии + пульт; `/aichat` — переписка экипажа
 
 `/bottom` — опциональный гибридный Bottom Detection: дерево регионов,
 backtracking, transformations и async evaluators. Он не обходит kill-stage,

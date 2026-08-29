@@ -44,6 +44,7 @@ from datetime import timedelta
 from typing import Any
 
 import core
+import crew
 import gpu
 import hypo
 import queue as q
@@ -455,6 +456,8 @@ def set_mode(conn, new_mode: str, config: dict | None = None) -> dict:
         core.set_setting(conn, "governor.cron_control_blocked", False)
     core.log_event(conn, "governor.mode", None, mode=new_mode,
                    pause_requested=requested, cron=cron)
+    # смена режима — событие экипажа: пауза research заметна в чате
+    crew.safe_emit("mode_change", conn=conn, ctx={"mode": new_mode})
     active = _active_research_rows(conn)
     return {
         "ok": bool(cron.get("ok")),
@@ -909,6 +912,9 @@ def _text_result(data: dict) -> str:
 
 
 def main(argv: list[str]) -> int:
+    if argv[1:2] and argv[1] in ("help", "-h", "--help"):
+        print(__doc__)
+        return 0
     core.load_env()
     config = core.load_config()
     as_json = core.wants_json(argv)
@@ -981,6 +987,9 @@ def main(argv: list[str]) -> int:
         return 0
     if cmd in ("report", "validate-report"):
         path = core.arg(argv, "file") or (argv[2] if len(argv) > 2 else "")
+        if not path:
+            core.fail("нужен --file <путь к JSON-отчёту воркера> "
+                      "(отчёты пишут воркеры Hermes, см. docs/GOVERNOR.md)")
         try:
             with open(path, "r", encoding="utf-8") as fh:
                 report = json.load(fh)

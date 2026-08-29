@@ -18,6 +18,7 @@ CLI:
 
 from __future__ import annotations
 
+import os
 import sys
 
 import core
@@ -55,20 +56,37 @@ def factor_value(row, factor: str) -> float:
     return q.clamp01(float(raw or 0.0))
 
 
+def _row_weight(row) -> float:
+    """#25: вердикты гипотез с патентной заготовкой весят вдвое — подтверждённое
+    и продаваемое должно учить калибровку сильнее, чем просто подтверждённое."""
+    path = os.path.join(core.REPORTS_DIR, f"patent-{row['id']}.md")
+    return 2.0 if os.path.exists(path) else 1.0
+
+
 def discrimination(conn) -> dict:
-    """Для каждого фактора: среднее у удачных минус среднее у провальных."""
+    """Для каждого фактора: среднее у удачных минус среднее у провальных.
+
+    Средние взвешенные: патентные гипотезы (есть reports/patent-*.md) идут
+    с весом 2 — калибровка учится на том, что реально монетизируется.
+    """
     rows = conn.execute(
-        "SELECT h.*, vd.kind FROM verdicts vd JOIN hypotheses h ON h.id=vd.hypo_id "
+        "SELECT h.*, vd.kind FROM verdicts vd "
+        "JOIN hypotheses h ON h.id=vd.hypo_id "
         "WHERE vd.kind IN ('confirmed','partial','rejected')"
     ).fetchall()
     good = [r for r in rows if r["kind"] in ("confirmed", "partial")]
     bad = [r for r in rows if r["kind"] == "rejected"]
+
+    def wmean(items, factor):
+        if not items:
+            return None
+        num = sum(factor_value(r, factor) * _row_weight(r) for r in items)
+        den = sum(_row_weight(r) for r in items)
+        return num / den if den else None
+
     out = {"n_total": len(rows), "n_good": len(good), "n_bad": len(bad), "factors": {}}
     for factor in FACTORS:
-        g = [factor_value(r, factor) for r in good]
-        b = [factor_value(r, factor) for r in bad]
-        gm = sum(g) / len(g) if g else None
-        bm = sum(b) / len(b) if b else None
+        gm, bm = wmean(good, factor), wmean(bad, factor)
         out["factors"][factor] = {
             "mean_good": None if gm is None else round(gm, 3),
             "mean_bad": None if bm is None else round(bm, 3),
@@ -126,6 +144,9 @@ def yaml_block(weights: dict) -> str:
 
 
 def main(argv: list[str]) -> int:
+    if argv[1:2] and argv[1] in ("help", "-h", "--help"):
+        print(__doc__)
+        return 0
     core.load_env()
     config = core.load_config()
     as_json = core.wants_json(argv)

@@ -103,6 +103,9 @@ def show(conn) -> dict:
 
 
 def main(argv: list[str]) -> int:
+    if argv[1:2] and argv[1] in ("help", "-h", "--help"):
+        print(__doc__)
+        return 0
     core.load_env()
     as_json = core.wants_json(argv)
     cmd = argv[1] if len(argv) > 1 else "show"

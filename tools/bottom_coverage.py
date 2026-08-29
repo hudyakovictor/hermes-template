@@ -80,11 +80,15 @@ def measure() -> Dict[str, object]:
     }
 
 
-def main() -> int:
+def main(argv=None) -> int:
+    argv = argv or []
+    if argv[1:2] and argv[1] in ("help", "-h", "--help"):
+        print(__doc__)
+        return 0
     data = measure()
     print(json.dumps(data, ensure_ascii=False, indent=2))
     return 0 if data["tests_ok"] and data["coverage"] >= 0.80 else 1
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(main(sys.argv))

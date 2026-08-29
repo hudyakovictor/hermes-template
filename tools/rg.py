@@ -12,15 +12,28 @@
   python tools/rg.py pause | resume | approve H-007
   python tools/rg.py governor plan | mode | reserve | report
   python tools/rg.py benchmark --concurrencies 1,2
+  python tools/rg.py panel [--send]               # панель: стадии + пульт
+  python tools/rg.py aichat [--n 30]              # история чата экипажа
+  python tools/rg.py crew emit|replay|review|stats|mute|test|bet|bets
+  python tools/rg.py inbox add|list|take|drop     # сырьё от человека
+  python tools/rg.py idea "текст"                 # идея от человека → разбор экипажем
+  python tools/rg.py triage IN-001 [--signals 3]  # разбор: очередь или лог неэффективных
+  python tools/rg.py ideas [--verdict rejected]   # очередь идей и лог отклонённых
+  python tools/rg.py hygiene                      # ночная уборка состояния
+  python tools/rg.py priors search "запрос"       # prior-art по 6 источникам
+  python tools/rg.py audit                        # 30 анализов функционала
 """
 
 from __future__ import annotations
 
+import difflib
+import importlib
 import sys
 
 import bottom_detection_cli
 import calib
 import core
+import crew
 import dispatch
 import governor
 import governor_benchmark
@@ -40,6 +53,7 @@ def main(argv: list[str]) -> int:
 
     routes = {
         "status": lambda: report.main([argv[0], "status"] + argv[2:]),
+        "panel": lambda: report.main([argv[0], "panel"] + argv[2:]),
         "digest": lambda: report.main([argv[0], "digest"] + argv[2:]),
         "weekly": lambda: report.main([argv[0], "weekly"] + argv[2:]),
         "patent": lambda: report.main([argv[0], "patent"] + argv[2:]),
@@ -64,14 +78,38 @@ def main(argv: list[str]) -> int:
         "recalib": lambda: calib.main([argv[0], "apply"] + argv[2:]),
         "doctor": lambda: selfcheck.main([argv[0], "all"] + argv[2:]),
         "bottom": lambda: bottom_detection_cli.main([argv[0]] + argv[2:]),
+        "aichat": lambda: crew.main([argv[0], "replay"] + argv[2:]),
+        "chat": lambda: crew.main([argv[0], "replay"] + argv[2:]),
+        "gossip": lambda: crew.main([argv[0], "replay"] + argv[2:]),
+        "bet": lambda: crew.main([argv[0], "bet"] + argv[2:]),
+        "bets": lambda: crew.main([argv[0], "bets"] + argv[2:]),
+        "crew": lambda: crew.main([argv[0]] + argv[2:]),
+        "inbox": lambda: importlib.import_module("inbox").main(
+            [argv[0]] + argv[2:]),
+        "idea": lambda: importlib.import_module("ideas").main(
+            [argv[0], "submit"] + argv[2:]),
+        "ideas": lambda: importlib.import_module("ideas").main(
+            [argv[0], "log"] + argv[2:]),
+        "triage": lambda: importlib.import_module("ideas").main(
+            [argv[0], "triage"] + argv[2:]),
+        "hygiene": lambda: importlib.import_module("hygiene").main(
+            [argv[0], "run"] + argv[2:]),
+        "audit": lambda: importlib.import_module("audit").main(
+            [argv[0], "run"] + argv[2:]),
+        "priors": lambda: importlib.import_module("priors").main(
+            [argv[0]] + argv[2:]),
+        "board": lambda: importlib.import_module("board").main(
+            [argv[0], "show"] + argv[2:]),
     }
     if cmd in ("help", "-h", "--help"):
         print(USAGE)
         return 0
     handler = routes.get(cmd)
     if handler is None:
+        close = difflib.get_close_matches(cmd, routes, n=1, cutoff=0.6)
+        hint = f" Возможно, вы имели в виду `{close[0]}`?" if close else ""
         print(USAGE)
-        core.fail(f"неизвестная команда {cmd!r}")
+        core.fail(f"неизвестная команда {cmd!r}.{hint}")
         return 2
     return handler()
 

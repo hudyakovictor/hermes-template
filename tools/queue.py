@@ -171,14 +171,40 @@ def scored(conn, statuses=core.LIVE_STATUSES, config: dict | None = None) -> lis
     return items
 
 
+def _mii(item: dict) -> float:
+    """Money-Impact Index (#19): монетизируемая решаемость на единицу времени.
+
+    При близких PPI (в пределах 10%) очередь обязана тянуть к деньгам:
+    первым идёт тот, у кого выше money×decidability/est_hours.
+    """
+    try:
+        hours = max(0.25, float(item.get("est_hours") or 1.0))
+        return float(item.get("money") or 0.0) * float(item.get("decidability") or 0.0) / hours
+    except (TypeError, ValueError):
+        return 0.0
+
+
 def pick_next(conn, config: dict | None = None) -> dict | None:
-    """R3: среди P1/P2 — максимальный PPI; если их нет — максимальный PI (с aging)."""
+    """R3: среди P1/P2 — максимальный PPI; если их нет — максимальный PI (с aging).
+
+    MII-tiebreak (#19): при PPI в пределах 10% друг от друга выигрывает
+    гипотеза с большим money×decidability/est_hours — отбор смещён к
+    монетизируемому без поломки приоритета ценности на GPU-час.
+    """
     candidates = [i for i in scored(conn, ("queued", "paused_checkpoint"), config)]
     if not candidates:
         return None
     cheap = [i for i in candidates if i["bin"] in ("P1", "P2")]
     if cheap:
         cheap.sort(key=lambda i: (-i["ppi"], -i["pi"]))
+        best_ppi = cheap[0]["ppi"]
+        tied = [i for i in cheap if i["ppi"] >= best_ppi * 0.9] or cheap
+        if len(tied) > 1:
+            tied.sort(key=_mii, reverse=True)
+            chosen = tied[0]
+            chosen["reason"] = (f"MII-tiebreak: PPI ~равны (≥0.9×{best_ppi:.2f}), "
+                                f"первым — money×decidability/ч = {_mii(chosen):.2f}")
+            return chosen
         chosen = cheap[0]
         chosen["reason"] = f"лучший PPI в дешёвых корзинах ({chosen['bin']}): {chosen['ppi']} очков/ч"
         return chosen
@@ -199,17 +225,44 @@ def live_count(conn) -> int:
 def add(conn, title: str, **kw) -> dict:
     hid = kw.get("hypo_id") or core.next_hypo_id(conn)
     now = core.iso()
+    # числовой санитайзер: пустые значения теряют силу (вступают дефолты),
+    # не-числа и nan/inf отвергаются внятным отказом, а не трейсбеком в INSERT
+    for key in NUMERIC_FIELDS:
+        if key in kw and kw[key] in (None, ""):
+            kw.pop(key)
+        elif key in kw:
+            try:
+                num = core.to_number(kw[key], key)
+            except ValueError as exc:
+                core.fail(f"не удалось поставить гипотезу: {exc}")
+            kw[key] = int(num) if NUMERIC_FIELDS[key] is int else num
+    # #2: коридор по умолчанию ±40% вокруг точки — вердикт сравнивает факт
+    # не только с точкой, но и с честным диапазоном
+    if kw.get("forecast") not in (None, ""):
+        f = float(kw["forecast"])
+        if kw.get("forecast_low") in (None, ""):
+            kw["forecast_low"] = round(f * 0.6, 2)
+        if kw.get("forecast_high") in (None, ""):
+            kw["forecast_high"] = round(f * 1.4, 2)
     conn.execute(
         "INSERT INTO hypotheses (id, title, status, level, signals, novelty, early_pct,"
-        " standard, money, decidability, est_hours, forecast, source, card_path,"
+        " standard, money, decidability, est_hours, forecast, forecast_low,"
+        " forecast_high, p_repro, base_rate, buyer, industry_usecase,"
+        " demand_signals, source, card_path,"
         " created_at, updated_at, notes)"
-        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (hid, title, kw.get("status", "queued"), kw.get("level", "L0"),
          int(kw.get("signals", 0)), float(kw.get("novelty", 0.5)),
          float(kw.get("early_pct", 10.0)), float(kw.get("standard", 0.4)),
          float(kw.get("money", 0.4)), float(kw.get("decidability", 0.5)),
          float(kw.get("est_hours", 4.0)),
          None if kw.get("forecast") in (None, "") else float(kw["forecast"]),
+         None if kw.get("forecast_low") in (None, "") else float(kw["forecast_low"]),
+         None if kw.get("forecast_high") in (None, "") else float(kw["forecast_high"]),
+         None if kw.get("p_repro") in (None, "") else float(kw["p_repro"]),
+         None if kw.get("base_rate") in (None, "") else float(kw["base_rate"]),
+         kw.get("buyer"), kw.get("industry_usecase"),
+         int(kw.get("demand_signals", 0) or 0),
          kw.get("source", "dr"), kw.get("card_path"), now, now, kw.get("notes")),
     )
     conn.commit()
@@ -231,15 +284,18 @@ def set_status(conn, hid: str, status: str, level: str | None = None) -> None:
 NUMERIC_FIELDS = {"signals": int, "novelty": float, "early_pct": float,
                   "standard": float, "money": float, "decidability": float,
                   "est_hours": float, "forecast": float,
-                  "kill_checks_passed": int}
+                  "forecast_low": float, "forecast_high": float,
+                  "p_repro": float, "base_rate": float,
+                  "demand_signals": int, "kill_checks_passed": int}
 
 
 def update_fields(conn, hid: str, **kw) -> None:
     sets, params = [], []
     for key, caster in NUMERIC_FIELDS.items():
         if kw.get(key) not in (None, ""):
+            num = core.to_number(kw[key], key)
             sets.append(f"{key}=?")
-            params.append(caster(kw[key]))
+            params.append(int(num) if caster is int else num)
     for key in ("title", "notes", "card_path", "level"):
         if kw.get(key):
             sets.append(f"{key}=?")
@@ -262,6 +318,9 @@ def render(items: list[dict], top: int | None = None) -> str:
 
 
 def main(argv: list[str]) -> int:
+    if argv[1:2] and argv[1] in ("help", "-h", "--help"):
+        print(__doc__)
+        return 0
     core.load_env()
     config = core.load_config()
     as_json = core.wants_json(argv)

@@ -26,7 +26,7 @@ worker не подтвердил checkpoint, новый inference/experiment н�
    │  ≥3 независимых источника
    ▼
 гипотеза (hypotheses/H-XXX.yaml) — 10 обязательных секций
-   │  7 kill-проверок  ────▶ убита до GPU = успех (memory/killed.md)
+   │  8 kill-проверок  ────▶ убита до GPU = успех (memory/killed.md)
    ▼
 очередь (SQLite): PI → PPI = PI / GPU-часы → корзины P1..P4
    │  governor: mode? leases? VRAM/util? reserve? budget? pause?
@@ -45,11 +45,23 @@ exclusive testing lease → каскад L0 (≤5 мин) → L1 (≤60 мин) 
 ## Состояние: одна точка истины
 
 `state/researchagen.sqlite3` — таблицы `hypotheses`, `runs`, `verdicts`, `events`,
-`settings`, `governor_leases` и `governor_reports`. Маркдаун/JSON-файлы (карточки,
-сигналы, отчёты) — для человека и git-истории; база — для решений и admission.
-Канбан Hermes — durable handoff/человеческое представление, а PI/PPI, kill-stage,
-runs и verdict остаются authoritative в researchagen: статус нельзя читать
-обратно, иначе появляется вторая правда и гонки.
+`settings`, `governor_leases`, `governor_reports`, `crew_chat` (переписка экипажа) и `crew_findings`
+(открытые замечания взаимного ревью).
+Маркдаун/JSON-файлы (карточки, сигналы, отчёты) — для человека и git-истории;
+база — для решений и admission. Канбан Hermes — durable handoff/человеческое
+представление, а PI/PPI, kill-stage, runs и verdict остаются authoritative
+в researchagen: статус нельзя читать обратно, иначе появляется вторая правда
+и гонки.
+
+## Чат экипажа: рабочая переписка + взаимное ревью (слой наблюдения)
+
+`tools/crew.py` — детерминированный движок рабочей переписки поверх событий
+контура: обсуждение работы, споры-«проверки на прочность» и взаимное ревью
+реальных косяков (таблица `crew_findings`: ложные галочки, гниющие гипотезы,
+сдвиг калибровки, патентные кандидаты); потолки пулов: `customer_share_max`
+~5% (про заказчика и AGI) и `noise_share_max` ~2%. Цена: 0 GPU, 0 токенов;
+бюджет `max_messages_per_day`; сбой не роняет контур. Научное состояние чат
+не меняет. Подробно: `docs/CHAT.md`.
 
 ## Почему PPI, а не PI
 
