@@ -1295,8 +1295,8 @@ function initTG() {
     tg.ready();
     tg.expand();
     if (tg.setColorScheme) { /* авто */ }
-    if (tg.setHeaderColor) tg.setHeaderColor("#0a0e14");
-    if (tg.setBackgroundColor) tg.setBackgroundColor("#0a0e14");
+    if (tg.setHeaderColor) tg.setHeaderColor("#071022");
+    if (tg.setBackgroundColor) tg.setBackgroundColor("#071022");
     if (tg.colorScheme === "light" && !tg.themeParams?.bg_color) {
       document.documentElement.setAttribute("data-theme", "light");
     } else if (tg.themeParams?.bg_color) {
