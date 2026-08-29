@@ -7,9 +7,9 @@
 | **Профили** | отдельный `profiles/researchagen` | Изоляция от первого агента: свой токен, своя модель, своя база |
 | **Алиас профиля** | `researchagen gateway start` | Второй терминал без путаницы с `HERMES_HOME` |
 | **Распространение профилей** | `distribution.yaml` | Установка прямо из GitHub одной командой, без ручного копирования |
-| **Скиллы** | `skills/<name>/SKILL.md`, 20 шт. | Каждый скилл — слеш-команда и сжатая инструкция: контекст грузится только когда нужен; `/bottom` подключает hybrid search layer |
+| **Скиллы** | `skills/<name>/SKILL.md`, включая `/conclave` и `/debate` | Каждый скилл — слеш-команда и сжатая инструкция: контекст грузится только когда нужен; `/bottom` подключает hybrid search layer |
 | **Комплекты скиллов** | `skill-bundles/research-os.yaml` | Одна сущность вместо 20 разрозненных файлов при установке и обновлении |
-| **Cron** | 5 задач в `cron/` | Основа автономии: короткие тики вместо одной бесконечной сессии, которая теряет контекст |
+| **Cron** | dispatcher/research/conclave-watch/digest/recalib/hygiene | Основа автономии: короткие тики вместо одной бесконечной сессии, которая теряет контекст; Conclave-watch CPU-only |
 | **`--workdir` у cron** | все задачи | Прогоны сериализуются по рабочему каталогу — два тика не лезут в одну базу одновременно |
 | **`--skill` у cron** | `research-loop` | Тик стартует уже в нужной роли, без длинного промпта-напоминания |
 | **Адреса доставки** | `telegram:<chat>:<thread>` | Сводки падают в нужную тему, а не в общую кашу |
@@ -19,7 +19,8 @@
 | **Канбан** | native Kanban + `tools/board.py sync` | Durable handoff и визуальная картина; scientific SQLite остаётся единственным источником PI/PPI/verdict |
 | **Subagent delegation** | нативный `delegate_task` через parent | Короткий flat research fan-out; dynamic count только после `tools/rg.py governor plan/reserve` |
 | **Governor** | `tools/governor.py`, `governor_leases` | Общий admission ledger: GPU telemetry, experiment lock, pause/resume/checkpoint, budget и report validation |
-| **Шлюз Telegram** | `researchagen gateway start` | Управление и диалог; свой бот-движок не пишем — его некому сопровождать |
+| **Conclave** | `tools/conclave.py`, `conclave_*` tables | Fixed role zones, trigger-based two-round critique, public Russian transcript, measured nudges и task/client commentary |
+| **Шлюз Telegram** | `researchagen gateway start` + outbound `tools/tg.py` | Управление/updates читает Hermes; Conclave transcript и telemetry только отправляются через Bot API, второго polling нет |
 | **Память** | `memory.memory_enabled` | Уроки из убитых гипотез переживают перезапуск сессии |
 | **Компрессия** | `compression.threshold` | 25-минутные тики не упираются в лимит контекста локальной модели |
 | **Вспомогательные слоты** | `title_generation`, `compression`, `goal_judge` | Дешёвые служебные вызовы не занимают главную модель на GPU |

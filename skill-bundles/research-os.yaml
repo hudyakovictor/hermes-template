@@ -25,6 +25,8 @@ skills:
   # Управление и наблюдение
   - auto
   - governor
+  - conclave
+  - debate
   - panel
   - digest
   - gpu

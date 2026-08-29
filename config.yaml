@@ -117,6 +117,9 @@ quick_commands:
   governor:
     type: exec
     command: python tools/rg.py governor plan --json
+  conclave:
+    type: exec
+    command: python tools/rg.py conclave watch --send
 
 # ---------------------------------------------------------------- Telegram
 platforms:
@@ -131,12 +134,15 @@ platforms:
       command_menu:
         max_commands: 60
         priority_mode: prepend
-        priority: [pool, next, dr, add, launch, v, h, digest, gpu, governor, auto]
+        priority: [pool, next, dr, add, launch, v, h, digest, gpu, governor, conclave, debate, auto]
       dm_topics:
         - chat_id: ${TELEGRAM_HOME_CHANNEL}     # <<INSTALLER>>
           ignore_root_dm: false
           topics:
             - { name: "📊 Штаб",         icon_color: 7322096 }
+            - { name: "🎭 Conclave",      icon_color: 11187200, skill: conclave }
+            - { name: "⚔️ Дебаты",        icon_color: 13669424, skill: conclave }
+            - { name: "👤 Заказчик",       icon_color: 5468256,  skill: conclave }
             - { name: "🔬 Research",      icon_color: 16766590, skill: dr }
             - { name: "📋 Очередь",      icon_color: 9367192,  skill: pool }
             - { name: "🧪 Эксперименты", icon_color: 4368165,  skill: launch }
@@ -194,6 +200,27 @@ researchagen:
     prioritize_ready_experiments: true
     hermes_cron_control: true                  # pause/resume research-loop in testing
     research_cron_job: research-loop
+  # ---------------------------------------------------------------- Conclave
+  # Персонажи и зоны фиксированы в tools/conclave.py; число реальных Qwen leaves
+  # всегда выбирает governor.  0/1 слот означает parent self-review, а не
+  # нарисованный консенсус.  95/90 ниже — измеряемые design priors, не гарантия.
+  conclave:
+    enabled: true
+    max_rounds: 2                              # debate is a bounded exception
+    min_slots_for_debate: 2                    # two real leaves for disagreement
+    trigger_score: 0.45
+    trigger_confidence_gap: 0.25
+    high_cost_gpu_hours: 4
+    nudge_probability: 0.18                    # occasional, not every message
+    nudge_cooldown_seconds: 600
+    client_comment_probability: 0.35           # parallel customer aside, sampled
+    max_visible_chars: 720
+    allow_banter: true
+    allow_profanity: true
+    ban_personal_attacks: true
+    ban_protected_targets: true
+    watch_idle_seconds: 1800
+    watch_send_cooldown_seconds: 1800
   pi_weights:                                  # пересчитываются cron'ом weekly-recalib
     signals: 0.22
     novelty: 0.16

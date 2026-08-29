@@ -45,7 +45,7 @@ exclusive testing lease → каскад L0 (≤5 мин) → L1 (≤60 мин) 
 ## Состояние: одна точка истины
 
 `state/researchagen.sqlite3` — таблицы `hypotheses`, `runs`, `verdicts`, `events`,
-`settings`, `governor_leases` и `governor_reports`. Маркдаун/JSON-файлы (карточки,
+`settings`, `governor_leases`, `governor_reports` и `conclave_*`. Маркдаун/JSON-файлы (карточки,
 сигналы, отчёты) — для человека и git-истории; база — для решений и admission.
 Канбан Hermes — durable handoff/человеческое представление, а PI/PPI, kill-stage,
 runs и verdict остаются authoritative в researchagen: статус нельзя читать
@@ -98,6 +98,36 @@ VRAM/utilization, reserve под эксперимент, budget и числу з
 `governor_reports` хранит только проверенные по форме child reports. Состояние
 гипотез и evidence из отчёта не обновляется автоматически: parent обязан
 проверить источники и пройти существующие `/h` → kill-stage → queue.
+
+## Conclave: фиксированные зоны, спор по trigger, публичный transcript
+
+Conclave добавляет коммуникационную плоскость, но не вторую очередь и не вторую
+научную правду. Parent сначала считает `conclave.detect_triggers`: confidence gap,
+source conflict, missing control, high-cost decision, stalled discussion или
+commercial claim без counterfactual. Без trigger новый Qwen debate не создаётся.
+
+При trigger `conclave.role_plan` получает текущие `available_slots` у governor и
+выбирает `0..N` leaf workers. Персона — это стабильный responsibility contract:
+`@Архивариус` проверяет источники, `@Кувалда` фальсифицирует, `@Адвокат`
+steelman-ит, `@Паяльник` превращает claim в reproducible test, `@Касса` аудирует
+ценность, `@Некролог` сжимает решение. Один слот означает честный parent self-review;
+два — реальный falsifier/steelman debate. Максимум два раунда, после чего parent принимает решение. Каждый room получает
+набор независимых challenge templates: `source-audit`, `falsification`, `steelman`,
+`confounder`, `replication`, `value-check`, `decision`. Ни один child не пишет
+hypothesis/evidence/verdict напрямую.
+
+У Conclave две языковые поверхности: English internal protocol для reasoning и
+короткие русские public summaries для Telegram. Hidden chain-of-thought не хранится.
+`conclave_messages` — только публичный transcript; `conclave_phrase_events` хранит
+выбранный nudge, его prior и последующий outcome. 95%/90% — design priors, а не
+измеренные гарантии. `conclave speak` может отправить task-комментарий и иногда
+одновременный client-комментарий в разные topics. `tg.py` остаётся outbound-only,
+поэтому второй Telegram long-polling процесс не появляется.
+
+Когда фаза `testing/analyze/paused`, Conclave не может получить research lease.
+Если Telegram недоступен, сообщения всё равно остаются в SQLite и transcript можно
+доставить позднее. Закрытие комнаты освобождает lease, но не меняет scientific state:
+для этого parent использует штатные `hypo.py`/kill-stage/`verdict.py`.
 
 ## Bottom Detection как гибридный поисковый слой
 

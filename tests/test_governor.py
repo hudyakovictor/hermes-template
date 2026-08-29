@@ -272,6 +272,25 @@ class GovernorDb(unittest.TestCase):
         self.assertEqual(self.conn.execute("SELECT COUNT(*) FROM hypotheses").fetchone()[0], 0)
         self.assertEqual(self.conn.execute("SELECT accepted FROM governor_reports").fetchone()[0], 1)
 
+    def test_hidden_reasoning_is_rejected_and_redacted_from_storage(self):
+        report = {
+            "task_id": "task-1", "status": "blocked", "claims": [],
+            "evidence_refs": [], "sources": [], "confidence": 0.1,
+            "duplicate_of": None, "recommended_next_action": "retry",
+            "changed_files": [], "resource_usage": {}, "failure_reason": "no source",
+            "chain_of_thought": "private chain must not be stored",
+        }
+        result = governor.validate_report(report)
+        self.assertFalse(result["valid"])
+        path = os.path.join(self.tmp.name, "private-report.json")
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(report, fh)
+        stored = governor.record_report(self.conn, path, "worker-1")
+        self.assertFalse(stored["valid"])
+        payload = self.conn.execute("SELECT payload FROM governor_reports").fetchone()["payload"]
+        self.assertNotIn("private chain", payload)
+        self.assertNotIn("chain_of_thought", payload)
+
     def test_failed_report_requires_failure_reason(self):
         base = {
             "task_id": "task-1", "status": "failed", "claims": [],

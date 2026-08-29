@@ -116,6 +116,10 @@ $TgToken = Ask-Required 'Токен бота (BotFather)'
 if ($TgToken -notmatch ':') { Write-Warn 'Токен без двоеточия выглядит неверно - проверьте' }
 $TgChat = Ask-Required 'chat_id рабочего чата/группы'
 $TgThread = Ask "thread_id темы 'Штаб' (Enter = общий чат)" ''
+$TgConclaveThread = Ask "thread_id темы 'Conclave' (Enter = общий чат)" ''
+$TgDebateThread = Ask "thread_id темы 'Дебаты' (Enter = Conclave)" $TgConclaveThread
+$TgClientThread = Ask "thread_id темы 'Заказчик' (Enter = Conclave)" $TgConclaveThread
+Write-Hint 'Conclave пишет наружу короткие русские summaries; reasoning остаётся внутри child.'
 Write-Hint 'Оба пользователя в списке видят один и тот же статус, очередь и историю.'
 $TgUser1 = Ask-Required 'user_id пользователя 1'
 $TgUser2 = Ask 'user_id пользователя 2 (Enter = пропустить)' ''
@@ -146,6 +150,7 @@ Write-Host "    Профиль       : $Target"
 Write-Host "    Платформа     : $Platform (debug=$DebugMode)"
 Write-Host "    Токен бота    : $mask"
 Write-Host "    Чат / тема     : $TgChat / $(if ($TgThread) { $TgThread } else { '-' })"
+Write-Host "    Conclave      : $(if ($TgConclaveThread) { $TgConclaveThread } else { '-' }) | Дебаты $(if ($TgDebateThread) { $TgDebateThread } else { '-' }) | Заказчик $(if ($TgClientThread) { $TgClientThread } else { '-' })"
 Write-Host "    Пользователи : $TgUsers"
 Write-Host "    Модель        : $ModelName @ $ModelBase"
 Write-Host "    Лимиты       : VRAM >= $GpuFree ГБ, бюджет $DailyBudget ч/сут, подтверждение > $Approval ч"
@@ -202,6 +207,9 @@ $envLines = @(
     "TELEGRAM_BOT_TOKEN=$TgToken",
     "TELEGRAM_HOME_CHANNEL=$TgChat",
     "TELEGRAM_CRON_THREAD_ID=$TgThread",
+    "TELEGRAM_CONCLAVE_THREAD_ID=$TgConclaveThread",
+    "TELEGRAM_DEBATE_THREAD_ID=$TgDebateThread",
+    "TELEGRAM_CLIENT_THREAD_ID=$TgClientThread",
     "TELEGRAM_ALLOWED_USERS=$TgUsers",
     "RESEARCHAGEN_MODEL_BASE_URL=$ModelBase",
     "RESEARCHAGEN_MODEL_NAME=$ModelName",

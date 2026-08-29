@@ -11,6 +11,7 @@
   python tools/rg.py verdict H-003 --kind confirmed --actual 11.4 ...
   python tools/rg.py pause | resume | approve H-007
   python tools/rg.py governor plan | mode | reserve | report
+  python tools/rg.py conclave plan | open | assign | brief | report | speak | transcript
   python tools/rg.py benchmark --concurrencies 1,2
 """
 
@@ -20,6 +21,7 @@ import sys
 
 import bottom_detection_cli
 import calib
+import conclave
 import core
 import dispatch
 import governor
@@ -57,6 +59,8 @@ def main(argv: list[str]) -> int:
         "resume": lambda: dispatch.main([argv[0], "resume"] + argv[2:]),
         "approve": lambda: dispatch.main([argv[0], "approve"] + argv[2:]),
         "governor": lambda: governor.main([argv[0]] + argv[2:]),
+        "conclave": lambda: conclave.main([argv[0]] + argv[2:]),
+        "debate": lambda: conclave.main([argv[0], "transcript"] + argv[2:]),
         "benchmark": lambda: governor_benchmark.main([argv[0], "run"] + argv[2:]),
         "verdict":  lambda: v.main([argv[0], "record"] + argv[2:]),
         "verdicts": lambda: v.main([argv[0], "list"] + argv[2:]),

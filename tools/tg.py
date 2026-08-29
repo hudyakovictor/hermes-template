@@ -71,7 +71,7 @@ def call(method: str, payload: dict) -> dict:
 
 
 def send(text: str, thread_id: str | None = None, silent: bool = False,
-         markdown: bool = True) -> dict:
+         markdown: bool = True, reply_to_message_id: int | None = None) -> dict:
     thread = thread_id or os.environ.get("TELEGRAM_CRON_THREAD_ID") or None
     chunks = [text[i:i + 3900] for i in range(0, len(text), 3900)] or [""]
     result: dict = {"ok": True, "parts": 0}
@@ -83,6 +83,7 @@ def send(text: str, thread_id: str | None = None, silent: bool = False,
             "parse_mode": "Markdown" if markdown else None,
             "disable_web_page_preview": "true",
             "disable_notification": "true" if silent else None,
+            "reply_to_message_id": reply_to_message_id,
         })
         result["parts"] = result.get("parts", 0) + 1
         if not result.get("ok"):

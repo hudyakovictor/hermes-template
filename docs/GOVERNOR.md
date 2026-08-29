@@ -100,6 +100,40 @@ meter. Actual token/GPU usage belongs in `resource_usage` in the child report.
 A completed live benchmark can tighten (never raise) the cap through
 `settings.governor.measured_max_concurrency`.
 
+## Conclave: persona-zones and triggered debate
+
+Conclave is a bounded communication/review layer around the same governor, not a
+second scientific queue. It opens only for exceptional evidence: source conflict,
+confidence gap, missing control, material GPU cost, a stalled discussion or a
+commercial claim without a counterfactual.
+
+```bash
+python tools/rg.py conclave plan --task-id H-003 --stage critique \\
+  --context-file reports/context.json --json
+python tools/rg.py conclave open --task-id H-003 --title "review H-003" \\
+  --stage critique --context-file reports/context.json --json
+python tools/rg.py conclave assign --session D-... --json
+```
+
+The parent assigns fixed zones/personas: `@Архивариус` (source audit), `@Кувалда`
+(falsification), `@Адвокат` (steelman), `@Паяльник` (mechanism), `@Касса` (value),
+and `@Некролог` (synthesis). One available slot means a parent self-review; two
+real slots are required for an actual disagreement. The room is limited to two
+rounds. Rhetorical victory never promotes a hypothesis.
+
+The brief keeps English internal reasoning separate from short Russian public
+messages and explicitly forbids hidden chain-of-thought output. `conclave_messages`
+stores only public transcript. `conclave speak` can publish a task comment and,
+with configured probability, a parallel customer comment to separate Telegram
+topics. The tone may be sarcastic, punk, darkly comic and mildly profane, but
+must target assumptions rather than protected traits or private people; threats,
+doxxing and joke-as-evidence are not allowed.
+
+Phrase reminders expose priors `0.95` / `0.90`, log every selection and require an
+observable outcome through `conclave outcome`. Those numbers are not a measured
+guaranty. If Telegram is unavailable, the transcript stays in SQLite and can be
+replayed later; no second long-polling reader is introduced.
+
 ## Pause protocol
 
 When the parent or dispatcher enters `testing`:
@@ -149,10 +183,11 @@ A child must return a JSON report with:
 ```
 
 `python tools/rg.py governor report --file ...` validates the shape and stores
-an audit row. It always returns `review_pending=true` and
-`scientific_state_changed=false`. A valid report is not a hypothesis, evidence,
-or verdict. The parent must inspect the primary source, remove duplicates, then
-use the existing signal/hypothesis/kill-stage pipeline.
+an audit row. Hidden fields such as `chain_of_thought`, `reasoning` and
+`scratchpad` are rejected and redacted before storage. It always returns
+`review_pending=true` and `scientific_state_changed=false`. A valid report is not
+a hypothesis, evidence, or verdict. The parent must inspect the primary source,
+remove duplicates, then use the existing signal/hypothesis/kill-stage pipeline.
 
 ## Native Hermes mapping
 

@@ -1,0 +1,9 @@
+{
+  "name": "conclave-watch",
+  "description": "CPU-only heartbeat for open Conclave rooms; sends a throttled Telegram view without spawning Qwen",
+  "schedule": "*/10 * * * *",
+  "command": "python tools/rg.py conclave watch --send",
+  "delivery": "none",
+  "enabled": true,
+  "notes": "This job never creates children or changes scientific state. It only publishes a throttled room/stall summary; live agent messages are emitted by conclave speak."
+}
