@@ -57,6 +57,40 @@ UNRESOLVED_RESEARCH_STATES = RESEARCH_LIVE_STATES + ("expired",)
 UNRESOLVED_EXPERIMENT_STATES = ("active", "pause_requested", "stop_requested", "expired")
 LEASE_STATES = UNRESOLVED_RESEARCH_STATES + ("paused", "stopped", "released")
 REPORT_STATUSES = ("completed", "no_finding", "blocked", "paused", "failed")
+REPORT_PRIVATE_KEYS = {
+    "chain_of_thought", "chain-of-thought", "cot", "hidden_reasoning",
+    "internal_reasoning", "private_reasoning", "raw_reasoning", "reasoning",
+    "analysis_trace", "thoughts", "scratchpad",
+}
+
+
+def _private_report_paths(value: Any, path: str = "report") -> list[str]:
+    paths: list[str] = []
+    if isinstance(value, dict):
+        for key, item in value.items():
+            key_text = str(key).lower()
+            current = f"{path}.{key}"
+            if key_text in REPORT_PRIVATE_KEYS:
+                paths.append(current)
+            else:
+                paths.extend(_private_report_paths(item, current))
+    elif isinstance(value, list):
+        for index, item in enumerate(value):
+            paths.extend(_private_report_paths(item, f"{path}[{index}]"))
+    return paths
+
+
+def _redact_private_report(value: Any):
+    if isinstance(value, dict):
+        return {
+            str(key): _redact_private_report(item)
+            for key, item in value.items()
+            if str(key).lower() not in REPORT_PRIVATE_KEYS
+        }
+    if isinstance(value, list):
+        return [_redact_private_report(item) for item in value]
+    return value
+
 
 # A report is deliberately stricter than a natural-language child summary.
 # It is still not scientific truth: the parent must review it and explicitly
@@ -810,6 +844,11 @@ def validate_report(report: Any) -> dict:
     if not isinstance(report, dict):
         return {"valid": False, "errors": ["report must be a JSON object"],
                 "review_pending": True, "scientific_state_changed": False}
+    private_paths = _private_report_paths(report)
+    if private_paths:
+        errors.append(
+            "hidden reasoning fields are not accepted or stored: " + ", ".join(private_paths[:8])
+        )
     for key in REPORT_REQUIRED:
         if key not in report:
             errors.append(f"missing field: {key}")
@@ -869,11 +908,12 @@ def record_report(conn, path: str, worker_id: str | None = None) -> dict:
     validation = validate_report(report)
     task_id = report.get("task_id") if isinstance(report, dict) else None
     status = report.get("status") if isinstance(report, dict) else "invalid"
+    stored_report = _redact_private_report(report)
     conn.execute(
         "INSERT INTO governor_reports (worker_id,task_id,status,accepted,payload,errors,created_at) "
         "VALUES (?,?,?,?,?,?,?)",
         (worker_id, task_id, status, 1 if validation["valid"] else 0,
-         json.dumps(report, ensure_ascii=False, sort_keys=True),
+         json.dumps(stored_report, ensure_ascii=False, sort_keys=True),
          json.dumps(validation["errors"], ensure_ascii=False), core.iso()),
     )
     report_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]

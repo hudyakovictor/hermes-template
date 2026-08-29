@@ -16,6 +16,7 @@ from __future__ import annotations
 import os
 import sys
 
+import conclave
 import core
 import dispatch
 import gpu
@@ -50,6 +51,7 @@ def status(conn, config: dict | None = None) -> dict:
         "calibration": cal,
         "recent_verdicts": [dict(r) for r in done_rows],
         "next": q.pick_next(conn, config),
+        "conclave": conclave.watch(conn, False, config)["rooms"],
     }
 
 
@@ -89,6 +91,14 @@ def status_text(data: dict) -> str:
         lines.append(f"• {i['bin']} PPI {i['ppi']:.3f} — {i['id']} {i['title'][:40]}")
     if data["next"]:
         lines.append(f"NEXT → {data['next']['id']} ({data['next']['reason']})")
+
+    if data.get("conclave"):
+        lines.append("")
+        lines.append("*Conclave*")
+        for room in data["conclave"][:3]:
+            marker = " ⚠️" if room.get("stalled") else ""
+            lines.append(f"• {room['session_id']} — {room['status']}, "
+                         f"{core.human_delta(room['idle_seconds'])}{marker} (/debate)")
 
     if data["recent_verdicts"]:
         lines.append("")

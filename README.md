@@ -22,7 +22,7 @@
 | Полная автономия | Диспетчер GPU (cron 2 мин), исследовательские тики (cron 25 мин) и общий stdlib governor с SQLite leases |
 | Решения о fan-out/GPU принимает код | Dynamic capacity, VRAM/utilization, pause/resume, суточный budget и experiment lock — в `tools/governor.py`/`tools/dispatch.py`, а не только в промпте |
 | Ни одного внешнего пакета | Только Python stdlib, `sh` и PowerShell 5.1 |
-| Телеметрия и управление в Telegram | Управление — штатный шлюз Hermes; телеметрия — отправка только через Bot API (второго long-polling нет) |
+| Телеметрия и управление в Telegram | Управление — штатный шлюз Hermes; телеметрия и Conclave transcript — отправка только через Bot API (второго long-polling нет) |
 | Два пользователя — одна картина | Единая SQLite в `state/`, любой `/status` читает одни и те же факты |
 | Защита от самообмана | Прогноз фиксируется ДО прогона; вердикт без прогноза невозможен; еженедельная калибровка весов |
 | Граница двух агентов | `selfcheck.py` проверяет, что токен не совпадает с токеном соседнего профиля |
@@ -74,7 +74,15 @@ researchagen chat            # ручная сессия, когда нужно 
 
 Исследование: `/dr` `/mine` `/h` `/kill` `/bottom`
 Исполнение: `/pool` `/next` `/launch` `/preempt` `/v`
-Управление: `/auto` `/governor` `/panel` `/digest` `/gpu` `/calib` `/patent` `/add` `/board` `/doctor`
+Управление: `/auto` `/governor` `/conclave` `/debate` `/panel` `/digest` `/gpu` `/calib` `/patent` `/add` `/board` `/doctor`
+
+`/conclave` — адаптивная комната спорных идей: главный агент закрепляет leaf-workers
+за зонами (`@Архивариус`, `@Кувалда`, `@Адвокат`, `@Паяльник`, `@Касса`, `@Некролог`),
+а открывает максимум два раунда критики только при конфликте данных, confidence gap,
+missing control, high-cost decision или зацикливании. Реплики короткие и русские,
+internal reasoning остаётся English и не публикуется. `/debate` показывает transcript;
+`conclave speak` иногда параллельно пишет комментарий о заказчике. Нуджи с priors
+95%/90% измеряются в SQLite и не считаются гарантией.
 
 `/bottom` — опциональный гибридный Bottom Detection: дерево регионов,
 backtracking, transformations и async evaluators. Он не обходит kill-stage,
@@ -92,8 +100,8 @@ live calibration: `python tools/rg.py benchmark --concurrencies 1,2 --requests-p
 MISSION.md SOUL.md .hermes.md FOCUS.md   — цель, характер, правила, текущий фокус
 config.yaml .env.EXAMPLE                 — конфигурация и шаблон секретов
 tools/                                   — основной контур, governor/admission + hybrid Bottom Detection (stdlib-only)
-skills/                                  — 20 скиллов = слеш-команды
-cron/                                    — 5 задач автономного контура
+skills/                                  — скиллы = слеш-команды, включая Conclave/debate
+cron/                                    — автономные dispatcher/research/Conclave/digest задачи
 hooks/BOOT.md                            — что делать в начале сессии
 docs/                                    — архитектура, Telegram, эксплуатация, оценка
 tests/                                   — unittest без зависимостей

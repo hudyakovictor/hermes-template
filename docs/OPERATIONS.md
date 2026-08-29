@@ -10,7 +10,8 @@
 | Задача | Расписание | Что делает |
 |---|---|---|
 | `dispatcher` | каждые 2 мин | Запуск/вытеснение/завершение прогонов. Модель не участвует |
-| `research-loop` | каждые 25 мин | Одна фаза `/dr` |
+| `research-loop` | каждые 25 мин | Одна фаза `/dr` и при необходимости bounded Conclave review |
+| `conclave-watch` | каждые 10 мин | CPU-only heartbeat/transcript hint, throttled Telegram delivery |
 | `daily-digest` | 09:00 | Сводка в Telegram |
 | `weekly-recalib` | вс 20:00 | Калибровка весов + недельный отчёт |
 | `hygiene` | 03:30 | Зависшие прогоны, ротация логов, сжатие базы |
@@ -40,6 +41,37 @@ python tools/rg.py governor mode discover
 `testing` ставит research cron на паузу, закрывает новые leases и ждёт
 checkpoint активных workers. `/v` после `finish` возвращает режим в `discover`;
 один `/pause` диспетчера сам по себе research workers не убивает.
+
+### Спорная гипотеза и живая переписка
+
+Parent делает конфликтную ситуацию явной, но спор не запускается ради количества
+сообщений:
+
+```bash
+cat > reports/context.json <<'JSON'
+{"stage":"critique","source_conflict":true,"estimated_gpu_hours":6,
+ "reports":[{"confidence":0.88},{"confidence":0.41}]}
+JSON
+python tools/rg.py conclave open --task-id H-012 --title "H-012: mechanism review" \\
+  --stage critique --context-file reports/context.json --json
+python tools/rg.py conclave assign --session D-... --json
+python tools/rg.py conclave brief --session D-... --assignment A-... --json
+```
+
+Поля brief разделены: English internal protocol для child и короткий Russian
+public voice для Telegram. После каждого child report parent может публиковать:
+
+```bash
+python tools/rg.py conclave speak --session D-... --assignment A-... \\
+  --kind critique --round 1 --task "Контроль не пережил удар." \\
+  --client "Заказчик опять просит кнопку бабло; считаем counterfactual."
+python tools/rg.py conclave transcript --session D-... --send
+```
+
+`conclave-watch` только наблюдает открытые комнаты и помечает stall; он не тратит
+Qwen и не меняет queue. Закрой комнату через `conclave close`, затем отдельно
+применяй `hypo.py`, kill-stage и `/v`. Нудж с 95/90 prior размечай `conclave outcome`;
+не называй prior измеренной эффективностью.
 
 ### Контур молчит сутки
 

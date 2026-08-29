@@ -102,8 +102,10 @@ def load_env(path: str = ENV_PATH) -> dict:
                 data[key] = val
                 os.environ.setdefault(key, val)
     for key in ("TELEGRAM_BOT_TOKEN", "TELEGRAM_HOME_CHANNEL", "TELEGRAM_ALLOWED_USERS",
-                "TELEGRAM_CRON_THREAD_ID", "RESEARCHAGEN_MODEL_BASE_URL",
-                "RESEARCHAGEN_MODEL_NAME", "OPENROUTER_API_KEY"):
+                "TELEGRAM_CRON_THREAD_ID", "TELEGRAM_CONCLAVE_THREAD_ID",
+                "TELEGRAM_DEBATE_THREAD_ID", "TELEGRAM_CLIENT_THREAD_ID",
+                "RESEARCHAGEN_MODEL_BASE_URL", "RESEARCHAGEN_MODEL_NAME",
+                "OPENROUTER_API_KEY"):
         if key in os.environ and key not in data:
             data[key] = os.environ[key]
     return data
@@ -292,6 +294,85 @@ CREATE TABLE IF NOT EXISTS governor_reports (
     errors          TEXT NOT NULL DEFAULT '[]',
     created_at      TEXT NOT NULL
 );
+
+-- Conclave is the durable communication/review layer around native Hermes
+-- children.  It stores only public summaries and moderation metadata; hidden
+-- chain-of-thought is never persisted or sent to Telegram.
+CREATE TABLE IF NOT EXISTS conclave_sessions (
+    session_id       TEXT PRIMARY KEY,
+    task_id          TEXT NOT NULL,
+    title            TEXT NOT NULL DEFAULT '',
+    stage            TEXT NOT NULL DEFAULT 'research',
+    status           TEXT NOT NULL DEFAULT 'open',
+    trigger          TEXT NOT NULL DEFAULT 'manual',
+    context          TEXT NOT NULL DEFAULT '{}',
+    max_rounds       INTEGER NOT NULL DEFAULT 2,
+    opened_at        TEXT NOT NULL,
+    updated_at       TEXT NOT NULL,
+    closed_at        TEXT,
+    decision         TEXT,
+    decision_role    TEXT
+);
+
+CREATE TABLE IF NOT EXISTS conclave_assignments (
+    assignment_id    TEXT PRIMARY KEY,
+    session_id       TEXT NOT NULL,
+    task_id          TEXT NOT NULL,
+    worker_id        TEXT NOT NULL,
+    role_id          TEXT NOT NULL,
+    persona          TEXT NOT NULL,
+    zone             TEXT NOT NULL,
+    protocol         TEXT NOT NULL,
+    state            TEXT NOT NULL DEFAULT 'planned',
+    lease_id         TEXT,
+    report_id        INTEGER,
+    created_at       TEXT NOT NULL,
+    updated_at       TEXT NOT NULL,
+    UNIQUE (session_id, worker_id),
+    FOREIGN KEY (session_id) REFERENCES conclave_sessions(session_id)
+);
+
+CREATE TABLE IF NOT EXISTS conclave_messages (
+    message_id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id          TEXT NOT NULL,
+    assignment_id       TEXT,
+    worker_id           TEXT,
+    role_id             TEXT,
+    audience             TEXT NOT NULL DEFAULT 'task',
+    kind                 TEXT NOT NULL DEFAULT 'analysis',
+    text                 TEXT NOT NULL,
+    language             TEXT NOT NULL DEFAULT 'ru',
+    round_no             INTEGER NOT NULL DEFAULT 0,
+    reply_to_message_id INTEGER,
+    nudge_phrase_id     TEXT,
+    telegram_message_id INTEGER,
+    created_at           TEXT NOT NULL,
+    FOREIGN KEY (session_id) REFERENCES conclave_sessions(session_id)
+);
+
+CREATE TABLE IF NOT EXISTS conclave_phrase_events (
+    event_id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    phrase_id             TEXT NOT NULL,
+    session_id            TEXT NOT NULL,
+    assignment_id         TEXT,
+    role_id               TEXT,
+    context               TEXT NOT NULL DEFAULT '{}',
+    prior_effectiveness   REAL NOT NULL,
+    target_positive_effect REAL NOT NULL,
+    outcome               TEXT,
+    selected_at           TEXT NOT NULL,
+    outcome_at            TEXT,
+    FOREIGN KEY (session_id) REFERENCES conclave_sessions(session_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_conclave_sessions_status
+    ON conclave_sessions(status, updated_at);
+CREATE INDEX IF NOT EXISTS idx_conclave_assignments_session
+    ON conclave_assignments(session_id, state);
+CREATE INDEX IF NOT EXISTS idx_conclave_messages_session
+    ON conclave_messages(session_id, message_id);
+CREATE INDEX IF NOT EXISTS idx_conclave_phrase_events_phrase
+    ON conclave_phrase_events(phrase_id, selected_at);
 
 CREATE TABLE IF NOT EXISTS bd_meta (
     namespace    TEXT NOT NULL,

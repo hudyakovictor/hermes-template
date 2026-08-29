@@ -18,6 +18,7 @@ import sys
 import urllib.error
 import urllib.request
 
+import conclave
 import core
 import gpu
 import governor
@@ -33,7 +34,8 @@ def _check(name: str, state: str, detail: str) -> dict:
 def check_layout() -> list[dict]:
     out = []
     for name in ("SOUL.md", ".hermes.md", "MISSION.md", "FOCUS.md", "config.yaml",
-                 "distribution.yaml"):
+                 "distribution.yaml", "tools/conclave.py", "skills/conclave/SKILL.md",
+                 "skills/debate/SKILL.md", "cron/conclave-watch.json"):
         path = os.path.join(core.ROOT, name)
         out.append(_check(f"файл {name}", OK if os.path.exists(path) else FAIL,
                           path if os.path.exists(path) else "отсутствует"))
@@ -187,6 +189,39 @@ def check_governor() -> list[dict]:
             conn.close()
 
 
+def check_conclave() -> list[dict]:
+    """Verify the communication layer is bounded and its priors are labelled."""
+    config = core.load_config()
+    if not conclave.enabled(config):
+        return [_check("conclave", FAIL, "persona review layer отключён")]
+    rounds = int(core.cfg("researchagen.conclave.max_rounds", 0, config) or 0)
+    slots = int(core.cfg("researchagen.conclave.min_slots_for_debate", 0, config) or 0)
+    if rounds < 1 or rounds > 3 or slots < 2:
+        return [_check("conclave", FAIL,
+                       f"unsafe bounds: max_rounds={rounds}, min_slots={slots}")]
+    bad_priors = [p["id"] for p in conclave.PHRASES
+                  if p.get("prior_effectiveness") != 0.95 or
+                  p.get("target_positive_effect") != 0.90]
+    conn = None
+    try:
+        conn = core.db()
+        tables = {row["name"] for row in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'conclave_%'"
+        ).fetchall()}
+        required = {"conclave_sessions", "conclave_assignments", "conclave_messages",
+                    "conclave_phrase_events"}
+        if bad_priors or not required.issubset(tables):
+            return [_check("conclave", FAIL,
+                           "schema/priors incomplete: " + ", ".join(sorted(bad_priors or ())))]
+        return [_check("conclave", OK,
+                       f"bounded debate={rounds} rounds, {len(conclave.PHRASES)} measurable nudges")]
+    except Exception as exc:  # noqa: BLE001
+        return [_check("conclave", FAIL, str(exc))]
+    finally:
+        if conn is not None:
+            conn.close()
+
+
 def run_all() -> dict:
     checks: list[dict] = []
     checks += check_python()
@@ -196,6 +231,7 @@ def run_all() -> dict:
     checks += check_model()
     checks += check_gpu()
     checks += check_governor()
+    checks += check_conclave()
     checks += check_db()
     fails = [c for c in checks if c["state"] == FAIL]
     warns = [c for c in checks if c["state"] == WARN]
