@@ -90,7 +90,7 @@ const Charts = (() => {
         return;
       }
       // сетка Y
-      ctx.font = "11.5px ui-monospace, SFMono-Regular, Menlo, monospace";
+      ctx.font = "12px ui-monospace, SFMono-Regular, Menlo, monospace";
       ctx.textAlign = "right"; ctx.textBaseline = "middle";
       for (let i = 0; i <= this.opts.yTicks; i++) {
         let y;

@@ -1066,7 +1066,7 @@ function bindWizard() {
       decidability: w.decidability, forecast: `${fmtPct(w.forecast)} ${w.metric}` });
     if (j.ok) {
       w.result = j; w.step = 4; haptic("ok");
-      refresh(); renderWizard();
+      await refresh(); renderWizard();
     } else if (btn) { btn.disabled = false; btn.textContent = "Отправить экипажу"; }
   });
   $$("#sheet-body input[data-wz]").forEach((el) => el.addEventListener("input", (e) => {
@@ -1188,7 +1188,7 @@ document.addEventListener("click", async (e) => {
     case "wizard": haptic(); openWizard(); break;
     case "wz-signals": S.wizard.signals = +el.dataset.v; haptic("select"); renderWizard(); break;
     case "wz-back": break;
-    case "wz-goto": S.wizard = null; closeSheet(true); go(el.dataset.nav); break;
+    case "wz-goto": S.wizard = null; closeSheet(true); go(el.dataset.nav); renderScreen(); break;
 
     case "pause": {
       haptic("warn");
@@ -1299,18 +1299,9 @@ function initTG() {
   try {
     tg.ready();
     tg.expand();
-    if (tg.setColorScheme) { /* авто */ }
-    if (tg.setHeaderColor) tg.setHeaderColor("#071022");
-    if (tg.setBackgroundColor) tg.setBackgroundColor("#071022");
-    if (tg.colorScheme === "light" && !tg.themeParams?.bg_color) {
-      document.documentElement.setAttribute("data-theme", "light");
-    } else if (tg.themeParams?.bg_color) {
-      const lum = (hex) => {
-        const n = parseInt(hex.replace("#", ""), 16);
-        return (0.299 * ((n >> 16) & 255) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) / 255;
-      };
-      try { if (lum(tg.themeParams.bg_color) > 0.6) document.documentElement.setAttribute("data-theme", "light"); } catch (e) {}
-    }
+    // Дизайн всегда тёмный: независимо от темы Telegram остаёмся в dark.
+    if (tg.setHeaderColor) tg.setHeaderColor("#05070e");
+    if (tg.setBackgroundColor) tg.setBackgroundColor("#05070e");
     if (tg.BackButton) tg.BackButton.onClick(() => {
       if (S.sheet) { if (S.wizard) S.wizard = null; closeSheet(); }
       else go("dash");
