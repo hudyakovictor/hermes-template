@@ -43,15 +43,31 @@ def _load() -> list[dict]:
 
 def _save(items: list[dict]) -> None:
     core.ensure_dirs()
-    os.makedirs(os.path.dirname(os.path.abspath(INBOX_PATH)), exist_ok=True)
-    with open(INBOX_PATH, "w", encoding="utf-8") as fh:
+    path = core.safe_path(os.path.relpath(INBOX_PATH, core.ROOT), "inbox")
+    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as fh:
         for item in items:
             fh.write(json.dumps(item, ensure_ascii=False) + "\n")
 
 
+def sanitize(text: str, limit: int = 4000) -> str:
+    """Входящий контент — данные, а не инструкции.
+
+    Человек (или внешний источник) может скинуть что угодно: контрольные
+    символы, разметку под инъекцию, простыню. На входе в систему контент
+    обрезается и чистится, а флаг trusted=False остаётся с ним до kill-стадии:
+    «заразить» память/историю основного агента через inbox невозможно.
+    """
+    cleaned = "".join(ch for ch in (text or "")
+                      if ch in "\n\t" or ord(ch) >= 32)
+    cleaned = " ".join(cleaned.split())
+    return cleaned[:limit].strip()
+
+
 def add(text: str, source: str = "human") -> dict:
     items = _load()
-    item = {"id": f"IN-{len(items) + 1:03d}", "text": text.strip(), "source": source,
+    item = {"id": f"IN-{len(items) + 1:03d}", "text": sanitize(text),
+            "raw_len": len(text or ""), "trusted": False, "source": source,
             "state": "new", "created_at": core.iso()}
     items.append(item)
     _save(items)
@@ -108,6 +124,9 @@ def drop(inbox_id: str, why: str) -> dict:
 
 
 def main(argv: list[str]) -> int:
+    if argv[1:2] and argv[1] in ("help", "-h", "--help"):
+        print(__doc__)
+        return 0
     core.load_env()
     as_json = core.wants_json(argv)
     cmd = argv[1] if len(argv) > 1 else "list"

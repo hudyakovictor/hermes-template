@@ -43,6 +43,9 @@ def _print(payload: Any, as_json: bool, text: str = "") -> None:
 
 
 def main(argv: List[str]) -> int:
+    if argv[1:2] and argv[1] in ("help", "-h", "--help"):
+        print(__doc__)
+        return 0
     command = argv[1] if len(argv) > 1 else "stats"
     as_json = _json_flag(argv)
     skill = _skill()

@@ -257,6 +257,9 @@ def run_sim(index: int, seed: int, verbose: bool = False) -> list[str]:
 
 
 def main(argv: list[str]) -> int:
+    if argv[1:2] and argv[1] in ("help", "-h", "--help"):
+        print(__doc__)
+        return 0
     sims = int(core.arg(argv, "sims", 20) or 20)
     seed = int(core.arg(argv, "seed", 1) or 1)
     as_json = core.wants_json(argv)

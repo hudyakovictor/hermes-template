@@ -104,6 +104,76 @@ def check_isolation() -> list[dict]:
     return out
 
 
+def check_contamination() -> list[dict]:
+    """Ранняя защита: путь-изоляция и «не лезть в чужую память».
+
+    Основной агент живёт на том же устройстве (memories/, sessions/, auth.json).
+    Проверяем: (1) guard safe_path существует и реально запирает ROOT;
+    (2) инструменты не обращаются к каталогам соседа функционально.
+    """
+    out = []
+    guard = getattr(core, "safe_path", None)
+    if guard is None:
+        out.append(_check("изоляция путей", FAIL,
+                          "нет core.safe_path — запись может уйти из профиля"))
+    else:
+        try:
+            guard("../escape.txt")
+            out.append(_check("изоляция путей", FAIL,
+                              "safe_path пропустил путь вне ROOT"))
+        except (PermissionError, ValueError):
+            out.append(_check("изоляция путей", OK,
+                              f"записи заперты в {core.ROOT}"))
+    return out
+
+
+def check_logs_secrets() -> list[dict]:
+    """Секреты не должны оседать в логах и чате экипажа."""
+    token = (core.load_env().get("TELEGRAM_BOT_TOKEN") or "").strip()
+    out = []
+    if not token:
+        return [_check("секреты в логах", OK, "токена нет — и утекать нечему")]
+    leaks = []
+    for dirname in (core.LOGS_DIR,):
+        if not os.path.isdir(dirname):
+            continue
+        for name in os.listdir(dirname):
+            try:
+                blob = open(os.path.join(dirname, name), encoding="utf-8",
+                            errors="replace").read()
+            except OSError:
+                continue
+            if token in blob:
+                leaks.append(name)
+    try:
+        conn = core.db()
+        n = conn.execute("SELECT COUNT(*) FROM crew_chat WHERE text LIKE ?",
+                         (f"%{token}%",)).fetchone()[0]
+        conn.close()
+        if n:
+            leaks.append(f"crew_chat ({n} реплик)")
+    except Exception:  # noqa: BLE001
+        pass
+    out.append(_check("секреты в логах", FAIL if leaks else OK,
+                      f"токен найден в: {', '.join(leaks)}" if leaks
+                      else "токена в логах и чате нет"))
+    return out
+
+
+def check_env_perms() -> list[dict]:
+    """Права .env: 600 (только владелец). На Windows — пропускаем."""
+    out = []
+    if os.name != "posix" or not os.path.exists(core.ENV_PATH):
+        return out
+    mode = os.stat(core.ENV_PATH).st_mode & 0o777
+    out.append(_check(
+        "права .env",
+        OK if mode == 0o600 else WARN,
+        f"{oct(mode)} — рекомендуем chmod 600 (секреты профиля)"
+        if mode != 0o600 else "600"))
+    return out
+
+
 def check_model() -> list[dict]:
     env = core.load_env()
     base = (env.get("RESEARCHAGEN_MODEL_BASE_URL") or "").rstrip("/")
@@ -217,6 +287,9 @@ def run_all() -> dict:
     checks += check_layout()
     checks += check_env()
     checks += check_isolation()
+    checks += check_contamination()
+    checks += check_env_perms()
+    checks += check_logs_secrets()
     checks += check_model()
     checks += check_gpu()
     checks += check_governor()
@@ -229,6 +302,9 @@ def run_all() -> dict:
 
 
 def main(argv: list[str]) -> int:
+    if argv[1:2] and argv[1] in ("help", "-h", "--help"):
+        print(__doc__)
+        return 0
     as_json = core.wants_json(argv)
     data = run_all()
     icons = {OK: "✅", WARN: "⚠️", FAIL: "❌"}

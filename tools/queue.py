@@ -225,6 +225,17 @@ def live_count(conn) -> int:
 def add(conn, title: str, **kw) -> dict:
     hid = kw.get("hypo_id") or core.next_hypo_id(conn)
     now = core.iso()
+    # числовой санитайзер: пустые значения теряют силу (вступают дефолты),
+    # не-числа и nan/inf отвергаются внятным отказом, а не трейсбеком в INSERT
+    for key in NUMERIC_FIELDS:
+        if key in kw and kw[key] in (None, ""):
+            kw.pop(key)
+        elif key in kw:
+            try:
+                num = core.to_number(kw[key], key)
+            except ValueError as exc:
+                core.fail(f"не удалось поставить гипотезу: {exc}")
+            kw[key] = int(num) if NUMERIC_FIELDS[key] is int else num
     # #2: коридор по умолчанию ±40% вокруг точки — вердикт сравнивает факт
     # не только с точкой, но и с честным диапазоном
     if kw.get("forecast") not in (None, ""):
@@ -282,8 +293,9 @@ def update_fields(conn, hid: str, **kw) -> None:
     sets, params = [], []
     for key, caster in NUMERIC_FIELDS.items():
         if kw.get(key) not in (None, ""):
+            num = core.to_number(kw[key], key)
             sets.append(f"{key}=?")
-            params.append(caster(kw[key]))
+            params.append(int(num) if caster is int else num)
     for key in ("title", "notes", "card_path", "level"):
         if kw.get(key):
             sets.append(f"{key}=?")
@@ -306,6 +318,9 @@ def render(items: list[dict], top: int | None = None) -> str:
 
 
 def main(argv: list[str]) -> int:
+    if argv[1:2] and argv[1] in ("help", "-h", "--help"):
+        print(__doc__)
+        return 0
     core.load_env()
     config = core.load_config()
     as_json = core.wants_json(argv)

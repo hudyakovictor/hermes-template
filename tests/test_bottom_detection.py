@@ -63,6 +63,7 @@ from bottom_detection.state import (  # noqa: E402
 class TempDb(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
+        core.allow_root(self.tmp.name)      # временный корень для safe_path
         self.conn = core.db(os.path.join(self.tmp.name, "state.sqlite3"))
 
     def tearDown(self) -> None:

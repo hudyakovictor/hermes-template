@@ -127,6 +127,9 @@ def simulate(runs: int = 150, seed: int = 20260829) -> Dict[str, object]:
 
 
 def main(argv: List[str]) -> int:
+    if argv[1:2] and argv[1] in ("help", "-h", "--help"):
+        print(__doc__)
+        return 0
     runs = int(argv[1]) if len(argv) > 1 else 150
     data = simulate(runs)
     print(json.dumps(data, ensure_ascii=False, indent=2))

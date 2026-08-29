@@ -172,7 +172,9 @@ def weekly(conn, config: dict | None = None) -> dict:
     lines.append(f"Ошибка прогноза: {cal['mean_abs_deviation_pct']}% | "
                  f"сдвиг {cal['bias_pct']}% | всего GPU-ч {cal['gpu_hours_spent']}")
     text = "\n".join(lines)
-    path = os.path.join(core.REPORTS_DIR, f"weekly-{core.iso()[:10]}.md")
+    path = core.safe_path(os.path.relpath(
+        os.path.join(core.REPORTS_DIR, f"weekly-{core.iso()[:10]}.md"), core.ROOT),
+        "отчёт")
     with open(path, "w", encoding="utf-8") as fh:
         fh.write(text)
     return {"text": text, "path": path, "survivors": len(survivors)}
@@ -224,7 +226,8 @@ def patent(conn, hid: str) -> dict:
         f"{r['gpu_hours']:.2f} GPU-ч" for r in vs) or "- нет записанных вердиктов"
     text = PATENT_TEMPLATE.format(hid=hid, title=row["title"],
                                  early=row["early_pct"], evidence=evidence)
-    path = os.path.join(core.REPORTS_DIR, f"patent-{hid}.md")
+    path = core.safe_path(os.path.relpath(
+        os.path.join(core.REPORTS_DIR, f"patent-{hid}.md"), core.ROOT), "отчёт")
     with open(path, "w", encoding="utf-8") as fh:
         fh.write(text)
     return {"path": path, "text": text}
@@ -323,6 +326,9 @@ def panel(conn, config: dict | None = None) -> dict:
 
 
 def main(argv: list[str]) -> int:
+    if argv[1:2] and argv[1] in ("help", "-h", "--help"):
+        print(__doc__)
+        return 0
     core.load_env()
     config = core.load_config()
     as_json = core.wants_json(argv)

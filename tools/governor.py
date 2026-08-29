@@ -912,6 +912,9 @@ def _text_result(data: dict) -> str:
 
 
 def main(argv: list[str]) -> int:
+    if argv[1:2] and argv[1] in ("help", "-h", "--help"):
+        print(__doc__)
+        return 0
     core.load_env()
     config = core.load_config()
     as_json = core.wants_json(argv)
@@ -984,6 +987,9 @@ def main(argv: list[str]) -> int:
         return 0
     if cmd in ("report", "validate-report"):
         path = core.arg(argv, "file") or (argv[2] if len(argv) > 2 else "")
+        if not path:
+            core.fail("нужен --file <путь к JSON-отчёту воркера> "
+                      "(отчёты пишут воркеры Hermes, см. docs/GOVERNOR.md)")
         try:
             with open(path, "r", encoding="utf-8") as fh:
                 report = json.load(fh)

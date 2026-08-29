@@ -140,7 +140,7 @@ def write_card(hid: str, title: str, **kw) -> str:
         hours=kw.get("est_hours", 4.0), decidability=kw.get("decidability", 0.5),
         novelty=kw.get("novelty", 0.5), kill_checks=checks,
     )
-    path = card_path(hid)
+    path = core.safe_path(os.path.relpath(card_path(hid), core.ROOT), "карточка")
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w", encoding="utf-8") as fh:
         fh.write(body)
@@ -180,7 +180,8 @@ def fields_from_args(argv: list[str]) -> dict:
             fields[key] = None if key == "forecast" else raw
             continue
         try:
-            fields[key] = cast(raw)
+            num = core.to_number(raw, f"--{cli_name}")
+            fields[key] = int(num) if cast is int else num
         except (TypeError, ValueError):
             core.fail(f"--{cli_name} должен быть числом, получено {raw!r}")
         # дефолты, когда флаг не передан вовсе
@@ -280,6 +281,9 @@ def check(hid: str, conn) -> dict:
 
 
 def main(argv: list[str]) -> int:
+    if argv[1:2] and argv[1] in ("help", "-h", "--help"):
+        print(__doc__)
+        return 0
     core.load_env()
     as_json = core.wants_json(argv)
     cmd = argv[1] if len(argv) > 1 else "help"

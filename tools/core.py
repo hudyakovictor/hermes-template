@@ -466,6 +466,50 @@ def log_event(conn: sqlite3.Connection, kind: str, hypo_id: str | None = None,
     conn.commit()
 
 
+_EXTRA_ROOTS: set[str] = set()
+
+
+def allow_root(path: str) -> None:
+    """Временно разрешить корень (для тестов на временных каталогах).
+
+    Прод-изоляция не меняется: список живёт в процессе, а не в конфиге.
+    """
+    _EXTRA_ROOTS.add(os.path.abspath(path))
+
+
+def safe_path(path: str, where: str = "запись") -> str:
+    """Изоляция среды: файловые операции только внутри ROOT профиля.
+
+    Основной агент (memories/, sessions/, workspace/, auth.json) живёт на том
+    же устройстве — случайная запись мимо ROOT означала бы контаминацию его
+    истории и памяти. Любой путь с ".." или абсолютный внешний путь — отказ.
+    Вызывается до записи, на ранней стадии — ошибка видна сразу, не в проде.
+    """
+    candidate = os.path.abspath(os.path.join(os.path.abspath(ROOT), path))
+    roots = {os.path.abspath(ROOT)} | set(_EXTRA_ROOTS)
+    if any(candidate == r or candidate.startswith(r + os.sep) for r in roots):
+        return candidate
+    raise PermissionError(
+        f"{where} вне ROOT ({os.path.abspath(ROOT)}) запрещена: {path!r} — "
+        f"изоляция профилей")
+
+
+def to_number(value, field: str):
+    """Числовой ввод из CLI/JSON: Reject не-чисел И не-конечных (nan/inf).
+
+    NaN проходит float() и тихо отравляет приоритеты — поэтому конечность
+    проверяется явно, с внятным сообщением, а не трейсбеком на 3 шага позже.
+    """
+    import math
+    try:
+        num = float(value)
+    except (TypeError, ValueError):
+        raise ValueError(f"{field} должен быть числом, получено {value!r}") from None
+    if not math.isfinite(num):
+        raise ValueError(f"{field} должен быть конечным числом, получено {value!r}")
+    return num
+
+
 def setting(conn: sqlite3.Connection, key: str, default=None):
     row = conn.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
     if row is None:
@@ -551,7 +595,7 @@ def fail(message: str, code: int = 2) -> "NoReturn":  # type: ignore[name-define
 
 def append_log(name: str, line: str) -> None:
     ensure_dirs()
-    with open(os.path.join(LOGS_DIR, name), "a", encoding="utf-8") as fh:
+    with open(safe_path(os.path.join(LOGS_DIR, name)), "a", encoding="utf-8") as fh:
         fh.write(f"{iso()} {line}\n")
 
 
