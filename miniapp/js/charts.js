@@ -85,12 +85,12 @@ const Charts = (() => {
       const b = this.bounds();
       const band = this.opts.band;
       if (!b) { // пусто — заглушка
-        ctx.fillStyle = colTx; ctx.font = "12px system-ui"; ctx.textAlign = "center";
+        ctx.fillStyle = colTx; ctx.font = "13px system-ui"; ctx.textAlign = "center";
         ctx.fillText("нет данных", this.W / 2, this.H / 2);
         return;
       }
       // сетка Y
-      ctx.font = "10.5px ui-monospace, SFMono-Regular, Menlo, monospace";
+      ctx.font = "11.5px ui-monospace, SFMono-Regular, Menlo, monospace";
       ctx.textAlign = "right"; ctx.textBaseline = "middle";
       for (let i = 0; i <= this.opts.yTicks; i++) {
         let y;
@@ -123,7 +123,7 @@ const Charts = (() => {
         if (band.label) {
           ctx.fillStyle = css.getPropertyValue("--ch-band").trim() || "rgba(124,108,255,.8)";
           ctx.textAlign = "left"; ctx.textBaseline = "bottom";
-          ctx.font = "10px system-ui";
+          ctx.font = "11px system-ui";
           ctx.fillText(band.label, this.opts.padL + 6, Math.min(y1, y2) - 2);
         }
       }
@@ -134,14 +134,14 @@ const Charts = (() => {
         ctx.beginPath(); ctx.moveTo(this.opts.padL, py); ctx.lineTo(this.W - this.opts.padR, py); ctx.stroke();
         ctx.setLineDash([]);
         if (hl.label) {
-          ctx.fillStyle = hl.color || colTx; ctx.font = "10px system-ui"; ctx.textAlign = "right"; ctx.textBaseline = "bottom";
+          ctx.fillStyle = hl.color || colTx; ctx.font = "11px system-ui"; ctx.textAlign = "right"; ctx.textBaseline = "bottom";
           ctx.fillText(hl.label, this.W - this.opts.padR - 4, py - 2);
         }
       }
       // серии
       for (const s of this.opts.series) {
         if (!s.data || !s.data.length) continue;
-        ctx.strokeStyle = s.color; ctx.lineWidth = s.width || 1.8;
+        ctx.strokeStyle = s.color; ctx.lineWidth = s.width || 2;
         ctx.setLineDash(s.dash || []);
         ctx.lineJoin = "round"; ctx.lineCap = "round";
         if (s.fill) {
@@ -164,7 +164,7 @@ const Charts = (() => {
           const last = s.data[s.data.length - 1];
           const px = this.sx(last[0], b), py = this.sy(last[1], b);
           ctx.fillStyle = s.color;
-          ctx.beginPath(); ctx.arc(px, py, 2.6, 0, Math.PI * 2); ctx.fill();
+          ctx.beginPath(); ctx.arc(px, py, 3, 0, Math.PI * 2); ctx.fill();
         }
       }
       // перекрестие

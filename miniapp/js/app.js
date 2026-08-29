@@ -188,7 +188,7 @@ function screenDash() {
   const util = gpu.util || 0;
   const free = Math.max(0, gpu.total_gb - gpu.used_gb);
   const ringCol = util > 5 ? "var(--acc)" : "var(--tx3)";
-  const C = 2 * Math.PI * 38;
+  const C = 2 * Math.PI * 44;
 
   const hero = cur ? `
     <section class="card task-hero">
@@ -229,11 +229,11 @@ function screenDash() {
       ${d.approvals.map((a) => `
         <div style="margin-bottom:10px">
           <div style="display:flex;gap:7px;align-items:center;flex-wrap:wrap">
-            <b class="mono" style="font-size:13px">${esc(a.hid)}</b>
+            <b class="mono" style="font-size:14.5px">${esc(a.hid)}</b>
             <span class="chip warn">${a.level} · ${fmtN(a.hours, 1)} GPU-ч</span>
             <span class="chip dim">PPI ${fmtN(a.ppi)}</span>
           </div>
-          <div style="font-size:13px;margin:5px 0 7px">${esc(a.title)}</div>
+          <div style="font-size:15px;margin:6px 0 8px">${esc(a.title)}</div>
           <div class="note">Порог подтверждения: ${g.approval_hours} GPU-ч. ${esc(a.note || "")}</div>
           <div class="split" style="margin-top:9px">
             <button class="btn ok sm block" data-act="approve" data-id="${esc(a.id)}" data-ok="1">✓ Одобрить</button>
@@ -247,7 +247,7 @@ function screenDash() {
     <section class="rowlink" data-act="open-hyp" data-hid="${esc(nextQ.id)}">
       <span class="chip acc">дальше</span>
       <div style="min-width:0;flex:1">
-        <div style="font-size:13px;font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(nextQ.title)}</div>
+        <div style="font-size:15px;font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(nextQ.title)}</div>
         <div class="note mono">${esc(nextQ.id)} · PPI ${fmtN(nextQ.ppi)} · ${fmtN(nextQ.est_hours, 1)} ч</div>
       </div>
       <span class="rl-chev">›</span>
@@ -260,9 +260,14 @@ function screenDash() {
       <div class="card-label"><span>${esc(gpu.name)}</span><span class="r">автозапуск: ${g.autostart ? "вкл" : "выкл"}</span></div>
       <div class="gpu-grid">
         <div class="ring">
-          <svg width="92" height="92" viewBox="0 0 92 92">
-            <circle cx="46" cy="46" r="38" fill="none" stroke="var(--card3)" stroke-width="8"/>
-            <circle cx="46" cy="46" r="38" fill="none" stroke="${ringCol}" stroke-width="8" stroke-linecap="round"
+          <svg width="104" height="104" viewBox="0 0 104 104">
+            <defs>
+              <linearGradient id="ringg" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0" stop-color="#5b8cff"/><stop offset="1" stop-color="#8f7bff"/>
+              </linearGradient>
+            </defs>
+            <circle cx="52" cy="52" r="44" fill="none" stroke="var(--card3)" stroke-width="9"/>
+            <circle cx="52" cy="52" r="44" fill="none" stroke="${util > 5 ? "url(#ringg)" : "var(--tx3)"}" stroke-width="9" stroke-linecap="round"
               stroke-dasharray="${(C * util / 100).toFixed(1)} ${C.toFixed(1)}"/>
           </svg>
           <span class="val"><div><b>${util}%</b><i>util</i></div></span>
@@ -560,12 +565,12 @@ function screenCrew() {
       ${open.length ? open.map((b) => `
         <div class="bet-row">
           <div style="display:flex;gap:7px;align-items:center;flex-wrap:wrap">
-            <b class="mono" style="font-size:12.5px">${esc(b.hid)}</b>
+            <b class="mono" style="font-size:14px">${esc(b.hid)}</b>
             <span class="chip ${b.status === "running" ? "acc" : "dim"}">${b.status === "running" ? "на GPU" : "в очереди"}</span>
           </div>
-          <div style="font-size:13px;font-weight:600;margin:6px 0 2px">${esc(b.title)}</div>
+          <div style="font-size:15px;font-weight:600;margin:7px 0 3px">${esc(b.title)}</div>
           <div class="bet-bar"><span class="b-up" style="width:${b.up.length / total(b) * 100}%"></span><span class="b-down"></span></div>
-          <div style="display:flex;justify-content:space-between;font-size:11.5px;color:var(--tx2)">
+          <div style="display:flex;justify-content:space-between;font-size:13px;color:var(--tx2)">
             <span style="color:var(--ok)">▲ взлетит: ${b.up.length ? esc(b.up.join(", ")) : "—"}</span>
             <span style="color:var(--err)">не взлетит: ${b.down.length ? esc(b.down.join(", ")) : "—"}</span>
           </div>
@@ -734,14 +739,14 @@ function openHyp(hid) {
         <span class="chip ${h.status === "running" ? "acc" : h.status === "blocked" ? "err" : h.status === "paused_checkpoint" ? "warn" : "dim"}">${STATUS_RU[h.status] || h.status}</span>
         <span class="ppi-badge"><b>${fmtN(h.ppi)}</b><span>PPI оч/ч</span></span>
       </div>
-      <h3 style="font-size:16px;margin:9px 0 8px;line-height:1.35">${esc(h.title)}</h3>
+      <h3 style="font-size:17.5px;margin:10px 0 9px;line-height:1.35">${esc(h.title)}</h3>
       <div class="kv">
         <div class="kvv"><b>${fmtN(h.pi)}</b><span>PI</span></div>
         <div class="kvv"><b>${fmtN(h.est_hours, 1)} ч</b><span>оценка</span></div>
         <div class="kvv"><b>${h.signals}</b><span>сигналов</span></div>
         <div class="kvv"><b>${h.seeds}</b><span>seeds</span></div>
         <div class="kvv"><b>${fmtN(h.age_days, 1)} дн</b><span>в очереди</span></div>
-        <div class="kvv"><b style="font-size:12.5px">${esc(src)}</b><span>источник</span></div>
+        <div class="kvv"><b style="font-size:14px">${esc(src)}</b><span>источник</span></div>
       </div>
       ${ladderHTML(h.level)}
     </div>
@@ -764,7 +769,7 @@ function openHyp(hid) {
     ${(h.bets.up.length || h.bets.down.length) ? `
     <div>
       <div class="card-label">Ставки экипажа</div>
-      <div style="display:flex;gap:14px;font-size:12.5px">
+      <div style="display:flex;gap:16px;font-size:14px">
         <span style="color:var(--ok)">▲ ${esc(h.bets.up.join(", ") || "—")}</span>
         <span style="color:var(--err)">▼ ${esc(h.bets.down.join(", ") || "—")}</span>
       </div>
@@ -794,7 +799,7 @@ function openAgent(id) {
   openSheet(`
     <div style="display:flex;gap:13px;align-items:center">
       ${avatar(id, "lg")}
-      <div><b style="font-size:17px">${esc(a.name)}</b><div class="note">${esc(a.zone)}</div></div>
+      <div><b style="font-size:18.5px">${esc(a.name)}</b><div class="note">${esc(a.zone)}</div></div>
     </div>
     ${l ? `<div class="kpi-grid" style="width:100%">
       <div class="kpi"><b>${Math.round(l.rate * 100)}%</b><span>точность ставок</span></div>
@@ -836,10 +841,10 @@ function openVerdict(id) {
       <span class="stamp ${v.kind}">${KIND_RU[v.kind]}</span>
       <span class="chip dim" style="margin-left:auto">${agoTxt(v.ts)}</span>
     </div>
-    <h3 style="font-size:16px;margin:8px 0;line-height:1.35">${esc(v.title)}</h3>
+    <h3 style="font-size:17.5px;margin:9px 0;line-height:1.35">${esc(v.title)}</h3>
     ${dumbbellHTML(v)}
     <div class="divider"></div>
-    <div><div class="card-label">Что проверяли</div><div style="font-size:13.5px">${esc(v.checked)}</div></div>
+    <div><div class="card-label">Что проверяли</div><div style="font-size:15px">${esc(v.checked)}</div></div>
     ${v.forecast != null ? `<div><div class="card-label">Числа</div>
       <div class="kv">
         <div class="kvv"><b>${fmtPct(v.forecast, 0)}</b><span>прогноз</span></div>
@@ -849,12 +854,12 @@ function openVerdict(id) {
         <div class="kvv"><b>σ ${v.sigma ?? "—"}</b><span>разброс</span></div>
         <div class="kvv"><b>${fmtN(v.gpu_hours, 1)}</b><span>GPU-ч</span></div>
       </div></div>` : ""}
-    <div><div class="card-label">Что меняется</div><div style="font-size:13.5px">${esc(v.changes)}</div></div>
-    <div><div class="card-label">Следующее действие</div><div style="font-size:13.5px">${esc(v.next)}</div></div>
+    <div><div class="card-label">Что меняется</div><div style="font-size:15px">${esc(v.changes)}</div></div>
+    <div><div class="card-label">Следующее действие</div><div style="font-size:15px">${esc(v.next)}</div></div>
     ${v.patent ? `
       <div class="patent-box">
         <div class="card-label" style="color:var(--cyan)">Проект патентной заявки · ${esc(v.patent.status)}</div>
-        <div style="font-size:13.5px;font-weight:600;line-height:1.4">${esc(v.patent.title)}</div>
+        <div style="font-size:15px;font-weight:600;line-height:1.4">${esc(v.patent.title)}</div>
         <div class="note" style="margin-top:5px">${v.patent.claims} пункта формулы. Коммерческий потенциал: ${Math.round(v.commercial * 100)}%.</div>
       </div>` : `<div class="note">Коммерческий потенциал: ${Math.round((v.commercial || 0) * 100)}%.</div>`}
     <div class="split">
@@ -995,7 +1000,7 @@ function renderWizard() {
           <div class="dup-row">
             <div class="dup-sim"><b class="mono" style="color:${m.sim > 0.45 ? "var(--err)" : m.sim > 0.25 ? "var(--warn)" : "var(--tx2)"}">${Math.round(m.sim * 100)}%</b><span>сходство</span></div>
             <div style="flex:1;min-width:0">
-              <div style="font-size:13px;font-weight:600;line-height:1.35">${esc(m.title)}</div>
+              <div style="font-size:14.5px;font-weight:600;line-height:1.35">${esc(m.title)}</div>
               <div class="note">${esc(m.why)} · <span class="mono">${esc(m.id)}</span></div>
             </div>
           </div>`).join("") : `<div class="banner" style="background:var(--ok-soft);border:1px solid color-mix(in srgb,var(--ok) 40%,transparent);color:var(--ok)">✓ Прямых дублей нет — идея проходит в разбор экипажа</div>`}
@@ -1014,7 +1019,7 @@ function renderWizard() {
         <svg width="34" height="34" viewBox="0 0 24 24" fill="none"><path d="m5 13 4.2 4.2L19 7.4" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </div>
       <div style="text-align:center">
-        <b style="font-size:16px">Карточка ${esc(r.hid)} создана</b>
+        <b style="font-size:17px">Карточка ${esc(r.hid)} создана</b>
         <div class="note" style="margin-top:4px">Идея у экипажа: iВасёк завёл карточку, Морг готовит kill-проверки, ставки открыты.</div>
       </div>
       <div class="kpi-grid">
