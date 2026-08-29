@@ -23,6 +23,18 @@ agent:
   reasoning_effort: medium
   clarify_timeout: 900                         # 15 мин на ответ на inline-кнопку, потом решает сам
 
+# ---------------------------------------------------------------- native Hermes delegation
+# Это только верхняя граница batch. Реальное число workers выбирает parent
+# через tools/rg.py governor plan и reserve; max_concurrent_children не является
+# GPU-lock и не заменяет admission controller.
+delegation:
+  max_iterations: 16                           # короткий leaf-turn; checkpoint в SQLite
+  max_concurrent_children: 2                    # conservative cap для одной GPU
+  max_spawn_depth: 1                            # flat: parent → leaf, без swarm tree
+  orchestrator_enabled: false                   # nested fan-out запрещён
+  provider: local_qwen
+  model: ${RESEARCHAGEN_MODEL_NAME}
+
 # ---------------------------------------------------------------- терминал
 terminal:
   backend: local
@@ -102,6 +114,9 @@ quick_commands:
   doctor:
     type: exec
     command: python tools/selfcheck.py all
+  governor:
+    type: exec
+    command: python tools/rg.py governor plan --json
 
 # ---------------------------------------------------------------- Telegram
 platforms:
@@ -116,7 +131,7 @@ platforms:
       command_menu:
         max_commands: 60
         priority_mode: prepend
-        priority: [pool, next, dr, add, launch, v, h, digest, gpu, auto]
+        priority: [pool, next, dr, add, launch, v, h, digest, gpu, governor, auto]
       dm_topics:
         - chat_id: ${TELEGRAM_HOME_CHANNEL}     # <<INSTALLER>>
           ignore_root_dm: false
@@ -158,6 +173,27 @@ researchagen:
     gpu_free_gb_required: 20                   # минимум свободной VRAM для L1+
     max_parallel_experiments: 1                # GPU — один ресурс
     daily_gpu_hours_budget: 20
+  # Autonomous admission around native delegate_task/Kanban workers.
+  # research_worker_vram_gb and thresholds are conservative starting points;
+  # calibrate them with a live Qwen/GPU benchmark before raising the cap.
+  governor:
+    enabled: true
+    default_mode: discover
+    max_research_children: 2                   # dynamic capacity never exceeds this
+    max_triage_children: 1                     # kill-stage / synthesis is narrower
+    research_worker_vram_gb: 4                  # estimated incremental KV/cache budget
+    experiment_reserve_gb: 8                   # keep headroom before a GPU experiment
+    min_free_vram_gb: 4                        # below this: fail closed
+    low_free_vram_gb: 6                        # degraded path: at most one worker
+    critical_free_vram_gb: 2                   # below this: zero workers
+    high_utilization_pct: 85                   # degraded path: at most one worker
+    saturated_utilization_pct: 95               # zero workers
+    daily_research_task_budget: 12             # admission units/day; 0 = unlimited
+    lease_ttl_seconds: 300
+    debug_research_capacity: 1
+    prioritize_ready_experiments: true
+    hermes_cron_control: true                  # pause/resume research-loop in testing
+    research_cron_job: research-loop
   pi_weights:                                  # пересчитываются cron'ом weekly-recalib
     signals: 0.22
     novelty: 0.16

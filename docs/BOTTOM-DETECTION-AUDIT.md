@@ -12,7 +12,7 @@ stdlib-only окружении результат: **30/30 PASS**.
 | 01 | фиксированная ветка Arena и отсутствие смены branch | PASS |
 | 02 | импорт всех модулей `tools/bottom_detection` | PASS |
 | 03 | AST/compile validation | PASS |
-| 04 | полный regression unittest suite | PASS, 65 тестов |
+| 04 | полный regression unittest suite | PASS, 79 тестов |
 | 05 | executable-line coverage нового пакета | PASS, 87.95% |
 | 06 | повторяемость 150-сценарного study-runner | PASS, hybrid 96% threshold pass |
 | 07 | CLI JSON smoke и два последовательных cron-тика | PASS, iteration 0 → 1 → 2 |

@@ -1,10 +1,10 @@
 {
   "name": "research-loop",
-  "description": "Один тик исследования: ровно одна фаза /dr, без длинных сессий",
+  "description": "Один тик исследования: ровно одна фаза /dr, bounded governor admission",
   "schedule": "*/25 * * * *",
-  "prompt": "Выполни ровно одну фазу исследовательского тика по скиллу dr. Сначала ориентация: python tools/rg.py status и python tools/queue.py stats --json. Затем выбери фазу по таблице состояний и доведи её до артефакта (файл сигнала, карточка гипотезы, результат гейта, вердикт). Не запускай GPU-прогоны вручную — это дело диспетчера. Если делать нечего, объясни причину одной строкой и заверши.",
+  "prompt": "Перед любым поиском, Qwen fan-out или delegate_task выполни python tools/rg.py governor plan --mode auto --json. Если mode=testing/analyze/paused, active experiment или can_spawn=false из-за telemetry/VRAM/budget — не создавай child и не делай новый Qwen fan-out: сохрани checkpoint/сообщение и заверши тик. В discover parent сам выбирает 0..available_slots независимых задач, для каждой сначала governor reserve, затем native delegate_task; nested delegation запрещён. Выполни ровно одну фазу исследовательского тика по скиллу dr. Сначала ориентация: python tools/rg.py status и python tools/queue.py stats --json. Затем выбери фазу по таблице состояний и доведи её до артефакта (файл сигнала, карточка гипотезы, результат гейта, вердикт). Не запускай GPU-прогоны вручную — это дело диспетчера. Child summaries проверь через governor report и первоисточники; они сами не создают гипотезы/evidence. Если делать нечего, объясни причину одной строкой и заверши.",
   "skill": "dr",
   "delivery": "none",
   "enabled": true,
-  "notes": "Доставка выключена специально: в Telegram уходят только события (запуск, вердикт, дайджест), а не каждые 25 минут размышлений. Иначе человек отключает уведомления и телеметрия теряет смысл."
+  "notes": "Governor автоматически закрывает admissions и пытается pause/resume этот job при переходе testing/analyze. Доставка выключена специально: в Telegram уходят только события (запуск, вердикт, дайджест), а не каждые 25 минут размышлений."
 }

@@ -18,6 +18,7 @@ from __future__ import annotations
 import sys
 
 import core
+import governor
 import queue as q
 
 BANNED = ("перспективно", "многообещающе", "возможно улучшение",
@@ -70,7 +71,7 @@ def render(hid: str, title: str, kind: str, forecast, actual, dev,
 
 def record(conn, hid: str, kind: str, actual=None, seeds_pass: int = 0,
            seeds_total: int = 0, sigma=None, gpu_hours: float = 0.0,
-           changes: str = "") -> dict:
+           changes: str = "", config: dict | None = None) -> dict:
     row = conn.execute("SELECT * FROM hypotheses WHERE id=?", (hid,)).fetchone()
     if row is None:
         core.fail(f"{hid} не найдена")
@@ -103,15 +104,21 @@ def record(conn, hid: str, kind: str, actual=None, seeds_pass: int = 0,
     )
     conn.commit()
     q.set_status(conn, hid, KIND_STATUS[kind])
+    # A managed experiment is kept in governor/analyze until this explicit
+    # parent verdict.  Only now may the research cron and paused workers be
+    # admitted again; the report itself never promotes a hypothesis.
+    governor_result = governor.complete_analysis(
+        conn, config if config is not None else core.load_config()
+    )
     core.log_event(conn, "verdict", hid, verdict_kind=kind, actual=actual,
-                   deviation=dev, gpu_hours=gpu_hours)
+                   deviation=dev, gpu_hours=gpu_hours, governor=governor_result)
     text = render(hid, row["title"], kind, row["forecast"], actual, dev,
                   int(seeds_pass), int(seeds_total), sigma, float(gpu_hours), changes)
     path = f"{core.REPORTS_DIR}/verdict-{hid}.md"
     with open(path, "a", encoding="utf-8") as fh:
         fh.write(text + "\n\n---\n\n")
     return {"ok": True, "id": hid, "kind": kind, "deviation": dev,
-            "text": text, "report": path}
+            "text": text, "report": path, "governor": governor_result}
 
 
 def calibration(conn) -> dict:
@@ -145,6 +152,7 @@ def calibration(conn) -> dict:
 
 def main(argv: list[str]) -> int:
     core.load_env()
+    config = core.load_config()
     as_json = core.wants_json(argv)
     cmd = argv[1] if len(argv) > 1 else "list"
     conn = core.db()
@@ -160,6 +168,7 @@ def main(argv: list[str]) -> int:
             sigma=core.arg(argv, "sigma"),
             gpu_hours=float(core.arg(argv, "gpu-hours", 0.0)),
             changes=core.arg(argv, "changes", ""),
+            config=config,
         )
         core.emit(res, as_json, res["text"])
         return 0

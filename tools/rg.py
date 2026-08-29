@@ -10,6 +10,8 @@
   python tools/rg.py launch H-003 [--level L1]
   python tools/rg.py verdict H-003 --kind confirmed --actual 11.4 ...
   python tools/rg.py pause | resume | approve H-007
+  python tools/rg.py governor plan | mode | reserve | report
+  python tools/rg.py benchmark --concurrencies 1,2
 """
 
 from __future__ import annotations
@@ -20,6 +22,8 @@ import bottom_detection_cli
 import calib
 import core
 import dispatch
+import governor
+import governor_benchmark
 import hypo
 import queue as q
 import report
@@ -52,7 +56,9 @@ def main(argv: list[str]) -> int:
         "pause": lambda: dispatch.main([argv[0], "pause"] + argv[2:]),
         "resume": lambda: dispatch.main([argv[0], "resume"] + argv[2:]),
         "approve": lambda: dispatch.main([argv[0], "approve"] + argv[2:]),
-        "verdict": lambda: v.main([argv[0], "record"] + argv[2:]),
+        "governor": lambda: governor.main([argv[0]] + argv[2:]),
+        "benchmark": lambda: governor_benchmark.main([argv[0], "run"] + argv[2:]),
+        "verdict":  lambda: v.main([argv[0], "record"] + argv[2:]),
         "verdicts": lambda: v.main([argv[0], "list"] + argv[2:]),
         "calib": lambda: calib.main([argv[0], "report"] + argv[2:]),
         "recalib": lambda: calib.main([argv[0], "apply"] + argv[2:]),

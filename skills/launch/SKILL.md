@@ -7,10 +7,18 @@ version: 1.0.0
 # /launch — запуск эксперимента
 
 ```bash
+python tools/rg.py governor plan --mode auto --json
 python tools/dispatch.py launch H-XXX --level L1
 python tools/dispatch.py running
 python tools/gpu.py check --need-gb 20
 ```
+
+`dispatch.py` сам берёт эксклюзивный governor experiment lease. Если research
+lease активен, переход в `testing` только выставляет `pause_requested` и
+останавливает запуск: сначала native `delegate_task stop/steer`, затем
+`governor checkpoint` или `stop-confirm`. `--force` не обходит этот resource
+lock. После `finish` очередь остаётся в `analyze` до явного `/v`, чтобы новый
+Qwen fan-out и следующий эксперимент не пересеклись с разбором.
 
 ## Каскад уровней — дешёвое вперёд, всегда
 

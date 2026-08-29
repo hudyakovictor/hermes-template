@@ -3,7 +3,9 @@
 
 Смысл: агент не спрашивает человека «что запустить». Решает очередь (PPI) +
 гейты: kill-stage пройден, прогноз зафиксирован, VRAM свободна, суточный бюджет
-не исчерпан, цена в лимите без подтверждения. Один GPU = один прогон.
+не исчерпан, цена в лимите без подтверждения. Governor дополнительно удерживает
+exclusive experiment lease и не запускает его, пока research/Qwen workers не
+остановлены на checkpoint. Один GPU = один прогон.
 
 CLI:
   python tools/dispatch.py tick [--json]        # главный вход для cron
@@ -23,6 +25,7 @@ import sys
 
 import core
 import gpu
+import governor
 import hypo
 import queue as q
 import tg
@@ -104,9 +107,25 @@ def launch(conn, hid: str, level: str = "L0", force: bool = False,
         return {"ok": False,
                 "reason": f"суточный бюджет GPU исчерпан: {spent:.1f}/{budget:.0f} ч"}
 
+    # Acquire the phase transition before sampling the final VRAM gate.  This
+    # closes the research cron and requests worker checkpoints early enough to
+    # free their memory for the experiment.  A failed VRAM check leaves the
+    # system in testing (research remains paused) and the next dispatcher tick
+    # retries; it never silently starts new Qwen work in the meantime.
+    # ``--force`` may bypass a scientific checklist, never this resource lock.
+    experiment_lease = governor.acquire_experiment(conn, hid, level, config=config)
+    if not experiment_lease.get("ok"):
+        return {
+            "ok": False,
+            "reason": f"governor: {experiment_lease.get('reason')}",
+            "problems": experiment_lease.get("active_research", []),
+        }
+
     ok_gpu, why, snap = gpu.can_launch(config=config)
     if not ok_gpu and not force:
-        return {"ok": False, "reason": f"GPU-гейт: {why}"}
+        governor.release(conn, experiment_lease["lease_id"], "GPU gate not ready; retry in testing")
+        return {"ok": False, "reason": f"GPU-гейт: {why}",
+                "governor": {"mode": "testing", "research_paused": True}}
 
     dry_run = bool(snap["debug"] and not snap["available"])
     log_path = os.path.join(core.LOGS_DIR, f"{hid}-{level}.log")
@@ -118,16 +137,28 @@ def launch(conn, hid: str, level: str = "L0", force: bool = False,
             proc = subprocess.Popen(cmd, cwd=core.ROOT, stdout=logfh,
                                     stderr=subprocess.STDOUT)
     except OSError as exc:
+        governor.release(conn, experiment_lease["lease_id"], "process launch failed")
+        governor.set_mode(conn, "discover", config)
         return {"ok": False, "reason": f"не удалось запустить процесс: {exc}"}
 
-    cur = conn.execute(
-        "INSERT INTO runs (hypo_id, level, state, started_at, dry_run, pid, log_path)"
-        " VALUES (?,?,'running',?,?,?,?)",
-        (hid, level, core.iso(), 1 if dry_run else 0, proc.pid, log_path))
-    conn.commit()
+    try:
+        cur = conn.execute(
+            "INSERT INTO runs (hypo_id, level, state, started_at, dry_run, pid, log_path)"
+            " VALUES (?,?,'running',?,?,?,?)",
+            (hid, level, core.iso(), 1 if dry_run else 0, proc.pid, log_path))
+        conn.commit()
+    except Exception as exc:  # noqa: BLE001
+        try:
+            proc.terminate()
+        except OSError:
+            pass
+        governor.release(conn, experiment_lease["lease_id"], "state insert failed")
+        governor.set_mode(conn, "discover", config)
+        return {"ok": False, "reason": f"не удалось записать состояние прогона: {exc}"}
     q.set_status(conn, hid, "running", level)
     core.log_event(conn, "dispatch.launch", hid, level=level, pid=proc.pid,
-                   dry_run=dry_run, gpu=snap.get("free_gb"))
+                   dry_run=dry_run, gpu=snap.get("free_gb"),
+                   governor_lease=experiment_lease.get("lease_id"))
     tg.send(tg.progress_card(hid, level, 0.0,
                              "Запущен" + (" (dry-run, отладка)" if dry_run else ""),
                              {"прогноз": f"{row['forecast']}%",
@@ -135,10 +166,12 @@ def launch(conn, hid: str, level: str = "L0", force: bool = False,
                               "VRAM": f"{snap.get('free_gb', 0):.1f} GB свободно"}),
              silent=True)
     return {"ok": True, "id": hid, "level": level, "run_id": cur.lastrowid,
-            "pid": proc.pid, "dry_run": dry_run, "log": log_path, "gpu": why}
+            "pid": proc.pid, "dry_run": dry_run, "log": log_path, "gpu": why,
+            "governor_lease": experiment_lease.get("lease_id")}
 
 
-def finish(conn, hid: str, gpu_hours: float = 0.0, state: str = "done") -> dict:
+def finish(conn, hid: str, gpu_hours: float = 0.0, state: str = "done",
+           config: dict | None = None) -> dict:
     row = conn.execute(
         "SELECT * FROM runs WHERE hypo_id=? AND state='running' ORDER BY run_id DESC LIMIT 1",
         (hid,)).fetchone()
@@ -148,8 +181,13 @@ def finish(conn, hid: str, gpu_hours: float = 0.0, state: str = "done") -> dict:
                  (state, core.iso(), float(gpu_hours), row["run_id"]))
     conn.commit()
     q.set_status(conn, hid, "paused_checkpoint" if state == "done" else "blocked")
-    core.log_event(conn, "dispatch.finish", hid, state=state, gpu_hours=gpu_hours)
+    governor_result = governor.finish_experiment(
+        conn, hid, config=config if config is not None else core.load_config()
+    )
+    core.log_event(conn, "dispatch.finish", hid, state=state, gpu_hours=gpu_hours,
+                   governor=governor_result)
     return {"ok": True, "id": hid, "state": state, "gpu_hours": gpu_hours,
+            "governor": governor_result,
             "note": "Статус — checkpoint. Дальше обязателен вердикт: /v " + hid}
 
 
@@ -178,7 +216,11 @@ def preempt(conn, config: dict | None = None) -> dict:
                  (core.iso(), current["run_id"]))
     conn.commit()
     q.set_status(conn, current["hypo_id"], "paused_checkpoint")
-    core.log_event(conn, "dispatch.preempt", current["hypo_id"], by=challenger["id"])
+    governor_result = governor.finish_experiment(
+        conn, current["hypo_id"], config=config, analysis=False
+    )
+    core.log_event(conn, "dispatch.preempt", current["hypo_id"],
+                   by=challenger["id"], governor=governor_result)
     tg.send(f"*⏸ Прервано на checkpoint*\n{current['hypo_id']} → в очередь\n"
             f"Причина: {challenger['id']} даёт PPI {challenger['ppi']:.3f} против {cur_ppi:.3f}")
     return {"ok": True, "paused": current["hypo_id"], "in_favor_of": challenger["id"],
@@ -241,7 +283,7 @@ def main(argv: list[str]) -> int:
     if cmd == "finish":
         hid = argv[2] if len(argv) > 2 else core.fail("нужен id")
         res = finish(conn, hid, float(core.arg(argv, "gpu-hours", 0.0)),
-                     core.arg(argv, "state", "done"))
+                     core.arg(argv, "state", "done"), config)
         core.emit(res, as_json, str(res.get("note") or res.get("reason")))
         return 0 if res.get("ok") else 1
 

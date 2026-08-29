@@ -19,6 +19,7 @@ import shutil
 import sys
 
 import core
+import governor
 
 MAX_LOG_MB = 20
 MAX_METRICS_MB = 50
@@ -56,6 +57,8 @@ def reap_stale_runs(conn, max_hours: float) -> list[dict]:
                        "hours": round(hours, 2), "pid": row["pid"]})
     conn.commit()
     if reaped:
+        for item in reaped:
+            governor.finish_experiment(conn, item["hypo_id"], analysis=True)
         core.log_event(conn, "hygiene.reap", None, runs=reaped)
     return reaped
 

@@ -263,6 +263,36 @@ CREATE TABLE IF NOT EXISTS settings (
     updated_at   TEXT NOT NULL
 );
 
+-- Governor leases are the durable admission ledger shared by the parent
+-- Hermes session, cron ticks and experiment processes.  They are deliberately
+-- separate from hypotheses/runs: scientific state remains authoritative there.
+CREATE TABLE IF NOT EXISTS governor_leases (
+    lease_id           TEXT PRIMARY KEY,
+    owner_id           TEXT NOT NULL,
+    kind               TEXT NOT NULL,       -- research | experiment
+    state              TEXT NOT NULL DEFAULT 'active',
+    mode               TEXT NOT NULL,
+    task_id            TEXT,
+    requested_vram_gb  REAL,
+    acquired_at        TEXT NOT NULL,
+    heartbeat_at       TEXT NOT NULL,
+    expires_at         TEXT,
+    checkpoint         TEXT,
+    reason             TEXT,
+    metadata           TEXT NOT NULL DEFAULT '{}'
+);
+
+CREATE TABLE IF NOT EXISTS governor_reports (
+    report_id       INTEGER PRIMARY KEY AUTOINCREMENT,
+    worker_id       TEXT,
+    task_id         TEXT,
+    status          TEXT NOT NULL,
+    accepted        INTEGER NOT NULL DEFAULT 0,
+    payload         TEXT NOT NULL,
+    errors          TEXT NOT NULL DEFAULT '[]',
+    created_at      TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS bd_meta (
     namespace    TEXT NOT NULL,
     key          TEXT NOT NULL,
@@ -360,6 +390,9 @@ CREATE TABLE IF NOT EXISTS bd_runs (
 CREATE INDEX IF NOT EXISTS idx_hypo_status ON hypotheses(status);
 CREATE INDEX IF NOT EXISTS idx_runs_state ON runs(state);
 CREATE INDEX IF NOT EXISTS idx_events_kind ON events(kind, created_at);
+CREATE INDEX IF NOT EXISTS idx_governor_leases_state ON governor_leases(kind, state, acquired_at);
+CREATE INDEX IF NOT EXISTS idx_governor_leases_owner ON governor_leases(owner_id, state);
+CREATE INDEX IF NOT EXISTS idx_governor_reports_task ON governor_reports(task_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_bd_history_namespace ON bd_history(namespace, created_at);
 CREATE INDEX IF NOT EXISTS idx_bd_regions_frontier ON bd_regions(namespace, status, signal_score);
 CREATE INDEX IF NOT EXISTS idx_bd_hypotheses_region ON bd_hypotheses(namespace, region_id, status);

@@ -24,6 +24,7 @@ skills:
   - v
   # Управление и наблюдение
   - auto
+  - governor
   - panel
   - digest
   - gpu
