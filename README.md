@@ -23,6 +23,7 @@
 | Решения о fan-out/GPU принимает код | Dynamic capacity, VRAM/utilization, pause/resume, суточный budget и experiment lock — в `tools/governor.py`/`tools/dispatch.py`, а не только в промпте |
 | Ни одного внешнего пакета | Только Python stdlib, `sh` и PowerShell 5.1 |
 | Телеметрия и управление в Telegram | Управление — штатный шлюз Hermes; телеметрия — отправка только через Bot API (второго long-polling нет) |
+| Живой чат экипажа — «Курилка» | `tools/crew.py`: агенты с зонами ответственности спорят, пишут некрологи гипотез, троллят и комментируют заказчика в топике «🎭 Курилка»; 0 GPU-часов, 0 токенов, бюджет суток (`/gossip`) |
 | Два пользователя — одна картина | Единая SQLite в `state/`, любой `/status` читает одни и те же факты |
 | Защита от самообмана | Прогноз фиксируется ДО прогона; вердикт без прогноза невозможен; еженедельная калибровка весов |
 | Граница двух агентов | `selfcheck.py` проверяет, что токен не совпадает с токеном соседнего профиля |
@@ -75,6 +76,7 @@ researchagen chat            # ручная сессия, когда нужно 
 Исследование: `/dr` `/mine` `/h` `/kill` `/bottom`
 Исполнение: `/pool` `/next` `/launch` `/preempt` `/v`
 Управление: `/auto` `/governor` `/panel` `/digest` `/gpu` `/calib` `/patent` `/add` `/board` `/doctor`
+Наблюдение: `/gossip` — подслушать Курилку (споры агентов, некрологи гипотез, AGI-часы)
 
 `/bottom` — опциональный гибридный Bottom Detection: дерево регионов,
 backtracking, transformations и async evaluators. Он не обходит kill-stage,

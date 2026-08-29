@@ -17,6 +17,7 @@ import os
 import sys
 
 import core
+import crew
 import dispatch
 import gpu
 import queue as q
@@ -244,12 +245,14 @@ def main(argv: list[str]) -> int:
         data = digest(conn, config)
         if core.flag(argv, "send"):
             tg.send(data["text"])
+            crew.safe_emit("digest", conn=conn, config=config)
         core.emit(data, as_json, data["text"])
         return 0
     if cmd == "weekly":
         data = weekly(conn, config)
         if core.flag(argv, "send"):
             tg.send(data["text"])
+            crew.safe_emit("digest", conn=conn, config=config)
         core.emit(data, as_json, data["text"])
         return 0
     if cmd == "patent":

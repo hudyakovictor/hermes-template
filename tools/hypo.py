@@ -18,6 +18,7 @@ import re
 import sys
 
 import core
+import crew
 import queue as q
 
 REQUIRED_SECTIONS = ("signal_chain", "mechanism", "why_missed", "minimal_test",
@@ -131,19 +132,41 @@ def write_card(hid: str, title: str, **kw) -> str:
 
 
 def fields_from_args(argv: list[str]) -> dict:
-    """Extract the common hypothesis fields used by CLI and inbox promotion."""
-    return {
+    """Extract the common hypothesis fields used by CLI and inbox promotion.
+
+    Числовые поля валидируются здесь: текст в --forecast не должен ронять CLI
+    трейсеболом — он получает внятный отказ и код ошибки.
+    """
+    numeric = {
+        "signals": ("signals", int),
+        "novelty": ("novelty", float),
+        "early_pct": ("early", float),
+        "standard": ("standard", float),
+        "money": ("money", float),
+        "decidability": ("decidability", float),
+        "est_hours": ("hours", float),
+        "forecast": ("forecast", float),
+    }
+    fields: dict = {
         "title": core.arg(argv, "title"),
-        "signals": core.arg(argv, "signals", 0),
-        "novelty": core.arg(argv, "novelty", 0.5),
-        "early_pct": core.arg(argv, "early", 10.0),
-        "standard": core.arg(argv, "standard", 0.4),
-        "money": core.arg(argv, "money", 0.4),
-        "decidability": core.arg(argv, "decidability", 0.5),
-        "est_hours": core.arg(argv, "hours", 4.0),
-        "forecast": core.arg(argv, "forecast"),
         "source": core.arg(argv, "source", "dr"),
     }
+    for key, (cli_name, cast) in numeric.items():
+        raw = core.arg(argv, cli_name)
+        if raw in (None, ""):
+            fields[key] = None if key == "forecast" else raw
+            continue
+        try:
+            fields[key] = cast(raw)
+        except (TypeError, ValueError):
+            core.fail(f"--{cli_name} должен быть числом, получено {raw!r}")
+        # дефолты, когда флаг не передан вовсе
+    defaults = {"signals": 0, "novelty": 0.5, "early_pct": 10.0, "standard": 0.4,
+                "money": 0.4, "decidability": 0.5, "est_hours": 4.0}
+    for key, value in defaults.items():
+        if fields.get(key) is None:
+            fields[key] = value
+    return fields
 
 
 def create(conn, title: str, fields: dict) -> dict:
@@ -230,17 +253,14 @@ def main(argv: list[str]) -> int:
         if len(argv) < 3 or argv[2].startswith("--"):
             core.fail("нужно название")
         title = argv[2]
-        kw = dict(
-            signals=core.arg(argv, "signals", 0), novelty=core.arg(argv, "novelty", 0.5),
-            early_pct=core.arg(argv, "early", 10.0), standard=core.arg(argv, "standard", 0.4),
-            money=core.arg(argv, "money", 0.4),
-            decidability=core.arg(argv, "decidability", 0.5),
-            est_hours=core.arg(argv, "hours", 4.0), forecast=core.arg(argv, "forecast"),
-            source=core.arg(argv, "source", "dr"),
-        )
+        kw = fields_from_args(argv)
+        kw.pop("title", None)      # title идёт позиционно; в kw его быть не должно
         row = q.add(conn, title, **kw)
         path = write_card(row["id"], title, **kw)
         q.update_fields(conn, row["id"], card_path=path)
+        crew.safe_emit("customer_lead" if kw.get("source") == "human" else "hypo_new",
+                       conn=conn, ctx={"hid": row["id"], "forecast": kw.get("forecast"),
+                                       "title": title})
         core.emit({"id": row["id"], "card": path}, as_json,
                   f"Создана {row['id']}: {os.path.relpath(path, core.ROOT)}\n"
                   f"Заполни секции и прогони kill-stage: python tools/hypo.py check {row['id']}")
@@ -249,7 +269,17 @@ def main(argv: list[str]) -> int:
     if cmd == "check":
         hid = argv[2] if len(argv) > 2 else core.fail("нужен id")
         result = check(hid, conn)
+        if "не найдена" not in " ".join(result["problems"]) and not result["ok"] and \
+                any("kill-stage" in p for p in result["problems"]):
+            est = conn.execute("SELECT est_hours, forecast FROM hypotheses WHERE id=?",
+                               (hid,)).fetchone()
+            crew.safe_emit("gate_fail", conn=conn, ctx={
+                "hid": hid, "passed": result["kill_checks_passed"],
+                "total": result["kill_checks_total"],
+                "hours": f"{float(est['est_hours']):.0f}" if est else "4",
+                "forecast": est["forecast"] if est else "—"})
         if result["ok"]:
+            crew.safe_emit("gate_pass", conn=conn, ctx={"hid": hid})
             text = f"{hid}: гейт пройден — запуск разрешён " \
                    f"({result['kill_checks_passed']}/{result['kill_checks_total']} kill-checks)"
         else:
@@ -268,6 +298,7 @@ def main(argv: list[str]) -> int:
         core.log_event(conn, "hypo.killed", hid, reason=reason, lesson=lesson)
         with open(os.path.join(core.MEMORY_DIR, "killed.md"), "a", encoding="utf-8") as fh:
             fh.write(f"- {core.iso()} {hid}: {reason} | урок: {lesson}\n")
+        crew.safe_emit("kill", conn=conn, ctx={"hid": hid, "reason": reason})
         core.emit({"ok": True, "id": hid, "reason": reason, "lesson": lesson}, as_json,
                   f"{hid} снята до эксперимента — {reason} (урок записан в memory/killed.md)")
         return 0

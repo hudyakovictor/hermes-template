@@ -18,6 +18,7 @@ from __future__ import annotations
 import sys
 
 import core
+import crew
 import governor
 import queue as q
 
@@ -117,6 +118,11 @@ def record(conn, hid: str, kind: str, actual=None, seeds_pass: int = 0,
     path = f"{core.REPORTS_DIR}/verdict-{hid}.md"
     with open(path, "a", encoding="utf-8") as fh:
         fh.write(text + "\n\n---\n\n")
+    crew.safe_emit(f"verdict_{kind}", conn=conn, ctx={
+        "hid": hid, "forecast": row["forecast"], "actual": actual,
+        "dev": None if dev is None else f"{dev:+.0f}",
+        "hours": f"{float(gpu_hours):.1f}",
+        "seeds": f"{int(seeds_pass)}/{int(seeds_total)}"})
     return {"ok": True, "id": hid, "kind": kind, "deviation": dev,
             "text": text, "report": path, "governor": governor_result}
 

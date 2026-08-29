@@ -12,6 +12,8 @@
   python tools/rg.py pause | resume | approve H-007
   python tools/rg.py governor plan | mode | reserve | report
   python tools/rg.py benchmark --concurrencies 1,2
+  python tools/rg.py gossip [--n 30]                 # последние реплики Курилки
+  python tools/rg.py crew emit|replay|stats|test     # движок чата агентов
 """
 
 from __future__ import annotations
@@ -21,6 +23,7 @@ import sys
 import bottom_detection_cli
 import calib
 import core
+import crew
 import dispatch
 import governor
 import governor_benchmark
@@ -64,6 +67,8 @@ def main(argv: list[str]) -> int:
         "recalib": lambda: calib.main([argv[0], "apply"] + argv[2:]),
         "doctor": lambda: selfcheck.main([argv[0], "all"] + argv[2:]),
         "bottom": lambda: bottom_detection_cli.main([argv[0]] + argv[2:]),
+        "gossip": lambda: crew.main([argv[0], "replay"] + argv[2:]),
+        "crew": lambda: crew.main([argv[0]] + argv[2:]),
     }
     if cmd in ("help", "-h", "--help"):
         print(USAGE)

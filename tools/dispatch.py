@@ -24,6 +24,7 @@ import subprocess
 import sys
 
 import core
+import crew
 import gpu
 import governor
 import hypo
@@ -159,6 +160,10 @@ def launch(conn, hid: str, level: str = "L0", force: bool = False,
     core.log_event(conn, "dispatch.launch", hid, level=level, pid=proc.pid,
                    dry_run=dry_run, gpu=snap.get("free_gb"),
                    governor_lease=experiment_lease.get("lease_id"))
+    crew.safe_emit("launch", conn=conn, ctx={
+        "hid": hid, "level": level, "budget": float(
+            core.cfg("researchagen.limits.daily_gpu_hours_budget", 20, config)),
+        "burn": round(gpu_hours_today(conn), 1)})
     tg.send(tg.progress_card(hid, level, 0.0,
                              "Запущен" + (" (dry-run, отладка)" if dry_run else ""),
                              {"прогноз": f"{row['forecast']}%",
@@ -186,6 +191,8 @@ def finish(conn, hid: str, gpu_hours: float = 0.0, state: str = "done",
     )
     core.log_event(conn, "dispatch.finish", hid, state=state, gpu_hours=gpu_hours,
                    governor=governor_result)
+    crew.safe_emit("finish_ok" if state == "done" else "finish_fail", conn=conn, ctx={
+        "hid": hid, "gpu_hours": gpu_hours, "state": state})
     return {"ok": True, "id": hid, "state": state, "gpu_hours": gpu_hours,
             "governor": governor_result,
             "note": "Статус — checkpoint. Дальше обязателен вердикт: /v " + hid}
@@ -223,6 +230,9 @@ def preempt(conn, config: dict | None = None) -> dict:
                    by=challenger["id"], governor=governor_result)
     tg.send(f"*⏸ Прервано на checkpoint*\n{current['hypo_id']} → в очередь\n"
             f"Причина: {challenger['id']} даёт PPI {challenger['ppi']:.3f} против {cur_ppi:.3f}")
+    crew.safe_emit("preempt", conn=conn, ctx={
+        "hid": current["hypo_id"], "ratio": f"{ratio:g}",
+        "challenger": challenger["id"]})
     return {"ok": True, "paused": current["hypo_id"], "in_favor_of": challenger["id"],
             "flag": flag_path}
 
@@ -248,12 +258,18 @@ def tick(conn, config: dict | None = None) -> dict:
 
     nxt = q.pick_next(conn, config)
     if not nxt:
+        crew.safe_emit("queue_empty", conn=conn, ctx={
+            "min": int(core.cfg("researchagen.limits.min_live_hypotheses", 3, config))})
         return {"action": "idle", "reason": "очередь пуста — нужны новые гипотезы (/dr)"}
 
     level = "L0" if nxt["level"] in (None, "", "L0") else nxt["level"]
     result = launch(conn, nxt["id"], level, config=config)
     if result.get("ok"):
         return {"action": "launched", **result, "why": nxt["reason"]}
+    if "бюджет" in str(result.get("reason") or ""):
+        crew.safe_emit("budget_burn", conn=conn, ctx={
+            "burn": round(gpu_hours_today(conn), 1),
+            "budget": float(core.cfg("researchagen.limits.daily_gpu_hours_budget", 20, config))})
     return {"action": "blocked", "hypo_id": nxt["id"], **result}
 
 

@@ -44,6 +44,7 @@ from datetime import timedelta
 from typing import Any
 
 import core
+import crew
 import gpu
 import hypo
 import queue as q

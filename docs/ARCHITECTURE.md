@@ -45,11 +45,20 @@ exclusive testing lease → каскад L0 (≤5 мин) → L1 (≤60 мин) 
 ## Состояние: одна точка истины
 
 `state/researchagen.sqlite3` — таблицы `hypotheses`, `runs`, `verdicts`, `events`,
-`settings`, `governor_leases` и `governor_reports`. Маркдаун/JSON-файлы (карточки,
-сигналы, отчёты) — для человека и git-истории; база — для решений и admission.
-Канбан Hermes — durable handoff/человеческое представление, а PI/PPI, kill-stage,
-runs и verdict остаются authoritative в researchagen: статус нельзя читать
-обратно, иначе появляется вторая правда и гонки.
+`settings`, `governor_leases`, `governor_reports` и `crew_chat` (журнал Курилки).
+Маркдаун/JSON-файлы (карточки, сигналы, отчёты) — для человека и git-истории;
+база — для решений и admission. Канбан Hermes — durable handoff/человеческое
+представление, а PI/PPI, kill-stage, runs и verdict остаются authoritative
+в researchagen: статус нельзя читать обратно, иначе появляется вторая правда
+и гонки.
+
+## Курилка: телеметрия настроения (слой наблюдения)
+
+`tools/crew.py` — детерминированный генератор живого чата экипажа поверх событий
+контура (запуск, вердикт, kill, digest). Панк-таблоид + некролог + стендап,
+споры-стресс-тесты, «95% фразы», AGI-часы, сатира над заказчиком. Цена: 0 GPU,
+0 токенов; бюджет `max_messages_per_day`; сбой отправки не роняет контур.
+Научное состояние Курилка не меняет. Подробно: `docs/CREW.md`.
 
 ## Почему PPI, а не PI
 
