@@ -124,8 +124,20 @@ def record(conn, hid: str, kind: str, actual=None, seeds_pass: int = 0,
         "actual": "—" if actual in (None, "") else f"{float(actual):g}%",
         "dev": None if dev is None else f"{dev:+.0f}%",
         "hours": f"{float(gpu_hours):.1f}",
+        "money": f"{float(row['money'] or 0):g}",
         "seeds": (f"{int(seeds_pass)}/{int(seeds_total)}"
                   if int(seeds_total) else "сольно")})
+    # Коммерческий тупик: подтверждено, но продать нельзя — ошибка ОТБОРА,
+    # а не победа. Фиксируется событием и попадает в калибровку.
+    if kind in ("confirmed", "partial") and float(row["money"] or 0) < 0.5:
+        text += ("\n\n⚠️ Коммерческий тупик: путь монетизации не назван (money "
+                 f"{float(row['money'] or 0):g} < 0.5). Подтверждение без спроса — "
+                 "зря потраченное время; считай ошибкой отбора.")
+        with open(path, "a", encoding="utf-8") as fh:
+            fh.write("_Коммерческий тупик: покупатель не назван._\n\n---\n\n")
+        core.log_event(conn, "verdict.commercial_dead_end", hid, money=row["money"])
+        crew.safe_emit("commercial_dead_end", conn=conn, ctx={
+            "hid": hid, "money": f"{float(row['money'] or 0):g}"})
     return {"ok": True, "id": hid, "kind": kind, "deviation": dev,
             "text": text, "report": path, "governor": governor_result}
 
@@ -147,12 +159,16 @@ def calibration(conn) -> dict:
     total = sum(counts.values())
     spent = conn.execute("SELECT COALESCE(SUM(gpu_hours),0) FROM verdicts").fetchone()[0]
     hit = counts["confirmed"] + counts["partial"]
+    dead_ends = int(conn.execute(
+        "SELECT COUNT(*) FROM verdicts v JOIN hypotheses h ON h.id=v.hypo_id "
+        "WHERE v.kind IN ('confirmed','partial') AND h.money < 0.5").fetchone()[0])
     return {
         "verdicts": total,
         "by_kind": counts,
         "mean_abs_deviation_pct": None if mae is None else round(mae, 1),
         "bias_pct": None if bias is None else round(bias, 1),
         "hit_rate": None if total == 0 else round(hit / total, 3),
+        "commercial_dead_ends": dead_ends,
         "gpu_hours_spent": round(float(spent), 2),
         "gpu_hours_per_confirmed": None if counts["confirmed"] == 0
         else round(float(spent) / counts["confirmed"], 2),

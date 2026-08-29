@@ -33,6 +33,7 @@ KILL_CHECKS = (
     "Есть контрольное условие, при котором эффект ОБЯЗАН исчезнуть",
     "Метрика читаема дешёво (не требует полного обучения для измерения)",
     "PASS/FAIL сформулированы числами и зафиксированы ДО запуска",
+    "Кому продадим: назван покупатель/лицензиат или измеримый сценарий экономии",
 )
 
 TEMPLATE = """# {hid} — {title}
@@ -268,9 +269,21 @@ def main(argv: list[str]) -> int:
                                        "hours": f"{float(row['est_hours']):g}",
                                        "signals": kw.get("signals", 0),
                                        "title": title})
+        # Якорь калибровки: агент видит свой систематический сдвиг ДО прогноза
+        cal_row = conn.execute(
+            "SELECT COUNT(*) n, AVG(deviation) bias FROM verdicts "
+            "WHERE deviation IS NOT NULL").fetchone()
+        anchor = ""
+        if cal_row["n"] >= 5 and cal_row["bias"] is not None:
+            bias = float(cal_row["bias"])
+            sign = "+" if bias >= 0 else ""
+            anchor = (f"\nЯкорь калибровки ({cal_row['n']} вердиктов): сдвиг {sign}{bias:.0f}%. "
+                      + ("Прогнозы в среднем завышены — ставь консервативнее." if bias > 0
+                         else "Прогнозы в среднем занижены — но не увлекайся."))
         core.emit({"id": row["id"], "card": path}, as_json,
                   f"Создана {row['id']}: {os.path.relpath(path, core.ROOT)}\n"
-                  f"Заполни секции и прогони kill-stage: python tools/hypo.py check {row['id']}")
+                  f"Заполни секции и прогони kill-stage: python tools/hypo.py check {row['id']}"
+                  + anchor)
         return 0
 
     if cmd == "check":

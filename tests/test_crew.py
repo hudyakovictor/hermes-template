@@ -348,6 +348,33 @@ class TestReview(CrewBase):
         self.assertEqual(data["fresh"], [])
 
 
+class TestCommercialDeadEnd(CrewBase):
+    def _add_and_confirm(self, money):
+        import queue as q
+        row = q.add(self.conn, "t", hypo_id="H-050", signals=4, forecast=10.0,
+                    money=money, est_hours=1.0)
+        self.assertTrue(row["id"] == "H-050")
+        import verdict as v
+        return v.record(self.conn, "H-050", kind="confirmed", actual=9.0,
+                        seeds_pass=3, seeds_total=3, gpu_hours=0.5,
+                        changes="L2 разрешён")
+
+    def test_confirmed_without_market_is_dead_end(self):
+        res = self._add_and_confirm(money=0.2)
+        self.assertTrue(res["ok"])
+        self.assertIn("Коммерческий тупик", res["text"])
+        import verdict as v
+        self.assertEqual(v.calibration(self.conn)["commercial_dead_ends"], 1)
+        events = {r["event"] for r in crew.replay(self.conn, 50)}
+        self.assertIn("commercial_dead_end", events)
+
+    def test_confirmed_with_market_is_not_dead_end(self):
+        res = self._add_and_confirm(money=0.8)
+        self.assertNotIn("Коммерческий тупик", res["text"])
+        import verdict as v
+        self.assertEqual(v.calibration(self.conn)["commercial_dead_ends"], 0)
+
+
 class TestJokes(CrewBase):
     def test_joke_bank_has_layers_and_mechanisms(self):
         for joke in crew.JOKES:

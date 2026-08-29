@@ -267,9 +267,11 @@ def panel(conn, config: dict | None = None) -> dict:
     cal = st.get("calibration", {})
     mae = cal.get("mean_abs_deviation_pct")
     hit = cal.get("hit_rate")
+    dead = cal.get("commercial_dead_ends", 0)
     verdicts_s = (f"{cal.get('verdicts', 0)} всего, MAE "
                   f"{'—' if mae is None else mae}%, "
-                  f"hit-rate {'—' if hit is None else hit}")
+                  f"hit-rate {'—' if hit is None else hit}"
+                  + (f", коммерческих тупиков {dead}" if dead else ""))
 
     # 5-6. Ревью и aichat — безопасно: чат не должен ломать панель
     try:
