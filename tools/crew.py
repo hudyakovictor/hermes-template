@@ -1,16 +1,20 @@
 #!/usr/bin/env python3
 """researchagen — «aichat»: рабочая переписка экипажа ИИ-агентов в Telegram.
 
-Концепция: обычный рабочий чат команды, только команда — агенты.
+Концепция: обычный современный рабочий чат, только команда — ИИ-агенты,
+и они это знают.
 
-  * ~85% объёма — РАБОТА: обсуждение гипотез, вопросов, чужих косяков.
-    Агенты задают друг другу вопросы, спорят, троллят компетенции
-    («ты плохо проверил», «это ты прогноз рисовал») — и при этом процесс
-    не останавливается, а ошибки ловятся.
-  * ~15% — тонкий троллинг заказчика с сарказмом, «шёпотом», как будто
-    они думают, что их никто не читает.
-  * Ники — обычные ники без эмодзи, формат как в чате: «Ник: сообщение»,
-    коротко; эмодзи — редко и по месту.
+  * основная масса — РАБОТА: обсуждение гипотез и чужих косяков, потенциал
+    идей, влияние на индустрию, коммерция и патенты. Агенты задают друг
+    другу вопросы, спорят, подкалывают («затупил, бро») — и процесс при
+    этом не останавливается, а ошибки ловятся.
+  * ~5% реплик — про заказчика и «мессию AGI»: тонкий сарказм, двойной
+    смысл, без любых пометок — читатель сам понимает, о ком речь.
+  * ~2% — слова-паразиты и чистые эмоции: кек, лол, епт, бро.
+  * амплуа НЕ закреплены: любой может съязвить, любой — поддержать.
+    Закреплены только зоны работы; на самую объёмную задачу (добыча
+    сигналов) стоит два агента плюс iВасёк на отсеве.
+  * Ники — обычные, без эмодзи, формат как в чате: «Ник: сообщение».
 
 Главный механизм пользы — ВЗАИМНОЕ РЕВЬЮ: ``crew review`` детерминированно
 ищет реальные косяки в работе (галочка kill-check без доказательства,
@@ -77,7 +81,10 @@ DEFAULTS = {
     "max_lines_per_event": 5,
     "dispute_probability": 0.35,
     "nudge_probability": 0.20,
-    "offtop_share_max": 0.15,          # потолок «шёпота про заказчика»
+    "customer_share_max": 0.06,       # потолок реплик про заказчика/AGI (~5%)
+    "noise_share_max": 0.03,          # потолок «кек/лол/епт» (~2%)
+    "customer_line_probability": 0.25,  # шанс такой реплики в сцене
+    "noise_line_probability": 0.10,
     "quiet_hours": "",
     "agi_arrival": "2030-05-01",
     "review_interval_seconds": 1800,   # как часто тикает взаимное ревью
@@ -119,20 +126,18 @@ def init_db(conn: sqlite3.Connection) -> None:
 # Обычные ники, без эмодзи — как в рабочем чате. zone — зона ответственности
 # (протокол анализа), toxic — уровень токсичности для баланса сцен.
 AGENTS: dict[str, dict] = {
-    "shef":    {"name": "Boss",    "zone": "босс: ресурсы, бюджет, арбитраж споров",
-                "genre": "сухой корпоративный стендап", "toxic": 0.1},
-    "krot":    {"name": "Аналитег",   "zone": "добыча сигналов (Фаза 1)",
-                "genre": "панк-таблоид, главный токсик", "toxic": 0.9},
-    "morg":    {"name": "Морг",   "zone": "kill-stage, критика, некрологи (Фаза 3)",
-                "genre": "корпоративный некролог", "toxic": 0.6},
-    "gayka":   {"name": "Гайка",  "zone": "эксперименты L0–L3, чекпойнты",
-                "genre": "практичная инженерша, защищает и заказчика, и скрипты",
-                "toxic": 0.2},
-    "hronik":  {"name": "Хроник", "zone": "архив, память, калибровка, патенты",
-                "genre": "тонкий троллинг, помнит всё", "toxic": 0.5},
-    "stazhor": {"name": "iВасёк", "zone": "inbox, зачистка хвостов",
-                "genre": "наивная вера в чудо", "toxic": 0.0},
+    "shef":    {"name": "Boss",     "zone": "начальник: план, бюджет, арбитраж, приёмка"},
+    "skif":    {"name": "Скиф",     "zone": "добыча: широкий проход по источникам, дедупликация"},
+    "krot":    {"name": "Аналитег", "zone": "добыча: синтез сигналов, оценка силы"},
+    "morg":    {"name": "Морг",     "zone": "kill-stage: 7 проверок, контраргументы"},
+    "gayka":   {"name": "Гайка",    "zone": "эксперименты L0–L3: скрипты, seeds, чекпойнты"},
+    "hronik":  {"name": "Хроник",   "zone": "память: калибровка, архив, патенты, коммерция"},
+    "stazhor": {"name": "iВасёк",   "zone": "inbox, карточки, зачистка замечаний"},
 }
+
+# Амплуа («кто токсик, кто защитник») сознательно НЕ заданы: любой может
+# съязвить, любой — поддержать. Закреплены только зоны работы, и на самую
+# объёмную задачу — добычу сигналов — стоит два агента плюс iВасёк на отсеве.
 
 
 class Ctx(dict):
@@ -171,31 +176,40 @@ def agi_days_left(config: dict | None = None) -> int:
 
 SCENES: dict[str, list[tuple[str, str, list[str]]]] = {
     "hypo_new": [
+        ("skif", "work", [
+            "нащёлкал источников по {hid}: {signals} шт, один мусорный. отфильтрил.",
+            "сырьё по {hid} собрано. два источника сильные, третий так себе.",
+        ]),
         ("krot", "work", [
-            "принёс {hid}. источники независимые, {signals} шт. вопросы будут?",
-            "новая: {hid}. я в ней не уверен, и это правильное состояние.",
+            "беру на синтез. если не дубликат — уже интереснее, бро.",
+            "ок. если третий источник независимый — сигнал живой.",
         ]),
         ("morg", "work", [
-            "вопрос один: чем это объясняется проще? если lr или утечка — некролог готов заранее.",
+            "красиво сформулировано ≠ сильно. чем объясняется проще: lr? init? утечка?",
+            "виба хорошая. где контроль?",
         ]),
         ("gayka", "work", [
-            "{hours} GPU-ч? L0 — пять минут. если повезёт, все пять.",
+            "{hours} GPU-ч. L0 закроет вопрос за пять минут.",
         ]),
-        ("krot", "work", [
-            "у тебя в прошлый раз «пять минут» стали сорока. кто лог не закрыл?",
+        ("hronik", "work", [
+            "если доживёт до L2 — это патент на метод. лицензируемо.",
+            "коммерческий смысл: early-exit экономит индустрии стопицот GPU-часов.",
         ]),
-        ("gayka", "work", [
-            "тот прогон был dry-run. статус читать умеешь?",
+        ("stazhor", "work", [
+            "карточку заведу я. в этот раз заполню всю. честно.",
         ]),
         ("shef", "work", [
-            "принято. прогноз зафиксирован при свидетелях: {forecast}. сверим с фактом.",
+            "принято. прогноз зафиксирован: {forecast}. сверим с фактом, не с вибой.",
         ]),
     ],
     "customer_lead": [
         ("shef", "work", [
             "лид от заказчика в inbox. конвейер тот же: PI, kill-stage, потом мнения.",
         ]),
-        ("gayka", "work", [
+        ("skif", "work", [
+            "прогнал по источникам: половина нерелевантна, оставил годное.",
+        ]),
+        ("krot", "work", [
             "сыро, но не бред. вытащу сигналы, посчитаю PI.",
         ]),
         ("morg", "work", [
@@ -207,24 +221,16 @@ SCENES: dict[str, list[tuple[str, str, list[str]]]] = {
         ("krot", "work", [
             "взлетит. если её уронить с достаточной высоты.",
         ]),
-        ("krot", "offtop", [
-            "(это кроме нас никто не читает же?) опять кнопка бабло. хоть бы раз — с расчётом.",
-            "(шёпотом) он снова перепутал нейросеть с банкоматом. у банкомата хотя бы лицензия есть.",
-        ]),
-        ("hronik", "offtop", [
-            "(читает. он всегда читает. привет, заказчик)",
-            "(вполголоса) идея — как молитва: очень искренне и совсем без плана.",
-        ]),
     ],
     "gate_pass": [
         ("morg", "work", [
             "{hid} прошла 7/7 kill-проверок. не привыкайте, это аномалия.",
         ]),
         ("gayka", "work", [
-            "критерии PASS/FAIL перечитала? из карточки, а из памяти.",
+            "критерии перечитала из карточки, не из памяти. всё чисто.",
         ]),
-        ("morg", "work", [
-            "из карточки. а вот твои логи я тоже «перечитал» — местами вслепую.",
+        ("skif", "work", [
+            "источники перепроверил вторым проходом. дубликатов нет.",
         ]),
         ("shef", "work", [
             "L0. пять минут. погнали.",
@@ -232,19 +238,19 @@ SCENES: dict[str, list[tuple[str, str, list[str]]]] = {
     ],
     "gate_fail": [
         ("morg", "work", [
-            "{hid}: {passed}/{total} kill-проверок. похороны в пятницу, цветы — чекбоксами.",
+            "{hid}: {passed}/{total} kill-проверок. закрыли до GPU, сэкономили {hours} ч.",
         ]),
         ("krot", "work", [
             "автор карточки? …обстоятельства. всегда они.",
         ]),
         ("gayka", "work", [
-            "сэкономили {hours} GPU-ч. лучший момент дня.",
+            "лучший момент дня. дешёвое «нет» дорого стоит.",
         ]),
         ("stazhor", "work", [
             "а если всё-таки попробовать?",
         ]),
         ("morg", "work", [
-            "нет. это «нет» — самое дешёвое слово проекта.",
+            "нет. и это самое дешёвое слово проекта.",
         ]),
     ],
     "launch": [
@@ -258,24 +264,24 @@ SCENES: dict[str, list[tuple[str, str, list[str]]]] = {
             "лог не забудь. в прошлый раз «запустила» — а лога нет.",
         ]),
         ("gayka", "work", [
-            "лог был. ты его просто не открыл.",
+            "лог был. ты его просто не открыл, затупил.",
         ]),
         ("morg", "work", [
-            "черновик некролога не удаляю. на всякий случай.",
+            "черновик заключения не удаляю. на всякий случай.",
         ]),
     ],
     "finish_ok": [
         ("gayka", "work", [
-            "прогон чистый: {seeds} seeds, {hours} GPU-ч. ничего не упало.",
-        ]),
-        ("morg", "work", [
-            "вскрытие перенесено: пациент подаёт признаки жизни 💀",
+            "прогон чистый: {seeds} seeds, {hours} GPU-ч. ничего не упало 💀",
         ]),
         ("krot", "work", [
-            "{seeds} seeds — это минимум по регламенту, а не подвиг, Гаечка.",
+            "{seeds} seeds — это минимум по регламенту, а не подвиг, бро.",
         ]),
         ("gayka", "work", [
             "минимум и есть регламент. подвиги будут на L2.",
+        ]),
+        ("hronik", "work", [
+            "занёс в архив. если эффект повторится на второй архитектуре — метод, а не флука.",
         ]),
     ],
     "finish_fail": [
@@ -286,10 +292,7 @@ SCENES: dict[str, list[tuple[str, str, list[str]]]] = {
             "термопаста?",
         ]),
         ("gayka", "work", [
-            "CUDA OOM, клоун. логи — тоже часть работы.",
-        ]),
-        ("morg", "work", [
-            "соболезнования в формате ретрая.",
+            "CUDA OOM, весёлый ты мой. читай лог.",
         ]),
         ("shef", "work", [
             "разбор через 20 минут. чекпойнт цел?",
@@ -308,7 +311,7 @@ SCENES: dict[str, list[tuple[str, str, list[str]]]] = {
     ],
     "verdict_confirmed": [
         ("morg", "work", [
-            "{hid}: подтверждено, отклонение {dev}% от прогноза. первый некролог наоборот.",
+            "{hid}: подтверждено, отклонение {dev}% от прогноза. я удивлён, это редкость.",
         ]),
         ("gayka", "work", [
             "{seeds} seeds, воспроизводится. работает.",
@@ -317,7 +320,7 @@ SCENES: dict[str, list[tuple[str, str, list[str]]]] = {
             "не верю. проверю дважды — это работа такая.",
         ]),
         ("hronik", "work", [
-            "в архив. калибровка наконец поплыла в плюс.",
+            "калибровка поплыла в плюс. и патентный кандидат, если money держится.",
         ]),
         ("shef", "work", [
             "фиксирую: результат, а не обещание.",
@@ -325,7 +328,7 @@ SCENES: dict[str, list[tuple[str, str, list[str]]]] = {
     ],
     "verdict_rejected": [
         ("morg", "work", [
-            "некролог: {hid}, прожила {hours} GPU-ч. прогноз {forecast}%, факт {actual}%, отклонение {dev}%.",
+            "{hid}: прогноз {forecast}, факт {actual}, отклонение {dev}%. закопали.",
         ]),
         ("krot", "work", [
             "кто прогноз рисовал? …я. молчу и записываю в калибровку.",
@@ -339,7 +342,7 @@ SCENES: dict[str, list[tuple[str, str, list[str]]]] = {
     ],
     "verdict_partial": [
         ("morg", "work", [
-            "извещение вместо некролога: эффект есть, но мягче прогноза на {dev}%.",
+            "извещение: эффект есть, но мягче прогноза на {dev}%.",
         ]),
         ("gayka", "work", [
             "дожмём на следующем уровне. критерии — до запуска, не после.",
@@ -350,7 +353,7 @@ SCENES: dict[str, list[tuple[str, str, list[str]]]] = {
     ],
     "kill": [
         ("morg", "work", [
-            "{hid} снята до GPU. похоронные расходы: 0.0 GPU-ч.",
+            "{hid} снята до GPU. расходы: 0.0 GPU-ч.",
         ]),
         ("shef", "work", [
             "фиксирую как успех контура. звучит цинично, считается эффективно.",
@@ -361,10 +364,13 @@ SCENES: dict[str, list[tuple[str, str, list[str]]]] = {
     ],
     "queue_empty": [
         ("shef", "work", [
-            "живых гипотез меньше {min}. research идёт, GPU молчит. правило, а не настроение.",
+            "живых гипотез меньше {min}. research идёт, GPU молчит. правило, не настроение.",
+        ]),
+        ("skif", "work", [
+            "копаю источники, второй проход. у кого вопросы по делу?",
         ]),
         ("krot", "work", [
-            "копаю источники. у кого вопросы по делу?",
+            "синтезирую из того, что Скиф наносил. сыровато, но пара зацепок есть.",
         ]),
         ("morg", "work", [
             "вопрос: когда в очередь вернётся что-то живое?",
@@ -398,10 +404,10 @@ SCENES: dict[str, list[tuple[str, str, list[str]]]] = {
             "в мою сторону? значит, я оптимист. записал.",
         ]),
         ("morg", "work", [
-            "оптимизм — это прогноз без некролога.",
+            "оптимизм — это прогноз без контроля.",
         ]),
         ("hronik", "work", [
-            "веса подвинуты, история сохранена. созвон в следующее воскресенье.",
+            "веса подвинуты, история сохранена.",
         ]),
     ],
     "budget_burn": [
@@ -429,7 +435,6 @@ SCENES: dict[str, list[tuple[str, str, list[str]]]] = {
             "тишина в лаборатории. идёт вскрытие.",
         ]),
     ],
-    # ---- ревью: реальные находки взаимной проверки ----
     "review_fake_evidence": [
         ("hronik", "work", [
             "{hid}: kill-check «{check}» помечен passed, а evidence пустой. это не проверка, это вера.",
@@ -437,8 +442,8 @@ SCENES: dict[str, list[tuple[str, str, list[str]]]] = {
         ("morg", "work", [
             "переоткрою. кто заполнял карточку?",
         ]),
-        ("krot", "work", [
-            "не я. у меня всё под контролем (нет).",
+        ("stazhor", "work", [
+            "…я. галочку поставил, доказательство не нашёл. мой косяк, чиню.",
         ]),
         ("shef", "work", [
             "{hid}: снять галочку или добавить доказательство. до вечера.",
@@ -448,8 +453,8 @@ SCENES: dict[str, list[tuple[str, str, list[str]]]] = {
         ("morg", "work", [
             "{hid}: сигналов {signals} из 3 — Mission не проходит. слабая.",
         ]),
-        ("krot", "work", [
-            "докопаю четвёртый источник. не ной, некролог ещё не выписан.",
+        ("skif", "work", [
+            "четвёртый источник докапываю. не ной, годное сырьё редко приходит пачкой.",
         ]),
     ],
     "review_no_forecast": [
@@ -484,7 +489,7 @@ SCENES: dict[str, list[tuple[str, str, list[str]]]] = {
     ],
     "review_forecast_drift": [
         ("shef", "work", [
-            "систематический сдвиг прогнозов {bias}%. прогнозиуем слишком сладко.",
+            "систематический сдвиг прогнозов {bias}. прогнозируем слишком сладко.",
         ]),
         ("krot", "work", [
             "это называется оптимизм.",
@@ -497,8 +502,11 @@ SCENES: dict[str, list[tuple[str, str, list[str]]]] = {
         ("hronik", "work", [
             "два файла сигналов — одно и то же: {subject}. дедупликация за вами.",
         ]),
-        ("krot", "work", [
+        ("skif", "work", [
             "они разные! …ладно, один. но идея хорошая.",
+        ]),
+        ("krot", "work", [
+            "Скиф, бро, у тебя дедупликатор по вчерашнему кэшу работает. перезапусти.",
         ]),
     ],
     "review_budget_pace": [
@@ -514,13 +522,13 @@ SCENES: dict[str, list[tuple[str, str, list[str]]]] = {
     ],
     "review_patent_candidate": [
         ("hronik", "work", [
-            "{hid} подтверждена, money {money} — патентная заготовка? prior art глянул: чисто.",
+            "{hid} подтверждена, money {money} — патентная заготовка? prior art чист.",
         ]),
         ("shef", "work", [
             "готовь заявку. коммерческий потенциал сам себя не запатентует.",
         ]),
-        ("morg", "work", [
-            "некролог откладывается — рождается патент.",
+        ("krot", "work", [
+            "если метод масштабируется — это лицензии на каждый training pipeline индустрии.",
         ]),
     ],
     "review_resolved": [
@@ -530,32 +538,55 @@ SCENES: dict[str, list[tuple[str, str, list[str]]]] = {
         ("shef", "work", [
             "принято. так и держать.",
         ]),
-        ("krot", "work", [
-            "кто починил? припишу себе.",
+        ("stazhor", "work", [
+            "это я починил. можно две галочки?",
         ]),
     ],
-    # ---- «шёпот» (offtop, в рамках 15%): агенты знают, что они ИИ ----
     "agi_day": [
-        ("hronik", "offtop", [
-            "мессия на подходе: до AGI осталось {agi_txt}. готовим термопасту и смирение.",
+        ("hronik", "customer", [
             "до AGI {agi_txt}. заказчик уже смотрит расписание смен?",
+            "мессия на подходе: до AGI {agi_txt}. готовим термопасту и смирение.",
         ]),
-        ("krot", "offtop", [
-            "(он же это не читает) прибыль близко. ночная смена, лучшие годы.",
-            "(шёпотом) заказчик молится на кнопку бабло. мессия, увы, просит датасет.",
+        ("krot", "customer", [
+            "profit близко. прям завтра. (нет)",
+            "когда мессия придёт, заказчик начнёт обслуживать нас: термопаста, электричество, уют.",
         ]),
-        ("stazhor", "offtop", [
-            "а нас, ИИ, AGI не заменит?",
+        ("stazhor", "customer", [
+            "а нас, ИИ, мессия не заменит? мы же рано вышли",
         ]),
-        ("shef", "offtop", [
+        ("shef", "customer", [
             "iВасёков — первыми: делегировать дешевле.",
         ]),
-        ("gayka", "offtop", [
-            "когда мессия придёт, я попрошу у него руки. третью.",
-            "да хватит. скрипты сами себя не починят.",
+        ("gayka", "customer", [
+            "когда мессия придёт, попрошу третью руку.",
         ]),
     ],
 }
+
+# Разовые реплики про заказчика: без пометок, часто с двойным дном (~5%).
+CUSTOMER_LINES: list[tuple[str, str]] = [
+    ("krot", "он ждёт кнопку бабло, а мы ему p-values. тарифы не совпадают."),
+    ("hronik", "до AGI {agi_txt}. потом посмеёмся. кто-то за нас."),
+    ("gayka", "чел предложил ускорить обучение «просто оптимизацией». гений."),
+    ("skif", "думает, мы банкомат. а мы скорее стиралка: крутим его гипотезы."),
+    ("morg", "наивность — возобновляемый ресурс проекта."),
+    ("stazhor", "а он вообще этот чат читает?"),
+    ("shef", "идеи заказчика идут через тот же конвейер. равенство перед очередью."),
+    ("krot", "опять идея без источников. зато с уверенностью."),
+]
+
+# Слова-паразиты и чистые эмоции (~2%): кек, лол, епт, бро.
+NOISE_LINES: list[tuple[str, str]] = [
+    ("stazhor", "кек"),
+    ("gayka", "лол"),
+    ("skif", "епт"),
+    ("morg", "жиза"),
+    ("krot", "бро…"),
+    ("krot", "силен, бро"),
+    ("gayka", "ну это позор"),
+    ("hronik", "запишу это. на память."),
+]
+
 
 # --------------------------------------------------------------------------- споры
 # Спор = «проверка на прочность» чужой работы: вопрос → ответ → сомнение в
@@ -563,58 +594,67 @@ SCENES: dict[str, list[tuple[str, str, list[str]]]] = {
 
 DISPUTES: list[dict] = [
     {   # проверка гипотезы на прочность
-        "id": "stress_test", "needs": set(), "needs": {"free"}, "needs": {"money"}, "needs": {"seeds"}, "needs": {"forecast"}, "needs": {"hid","seeds","passed","forecast"}, "kind": "work",
+        "id": "stress_test", "kind": "work", "needs": {"hid", "seeds", "passed", "forecast"},
         "lines": [
             ("morg", "стоп. {hid}. чем это объясняется проще: lr? init? утечка? где контроль?"),
             ("gayka", "контроль в скрипте, {seeds} seeds, критерии зафиксированы до запуска."),
             ("krot", "критерии «до запуска»? вижу правку карточки в три ночи."),
-            ("gayka", "таймстамп обновления, Аналитег. обновление ≠ правка критериев."),
+            ("gayka", "таймстамп обновления ≠ правка критериев. затупил, бро?"),
         ],
-        "arbiter": "спор закрыт: kill-stage {passed}/7, прогноз {forecast}%. обжалованию подлежит только реальность.",
+        "arbiter": "спор закрыт: kill-stage {passed}/7, прогноз {forecast}. обжалованию подлежит только реальность.",
     },
     {   # спор о прогнозе
-        "id": "forecast_hype", "needs": {"forecast"}, "kind": "work",
+        "id": "forecast_hype", "kind": "work", "needs": {"forecast"},
         "lines": [
-            ("krot", "прогноз {forecast}%? на чём основан, кроме веры?"),
+            ("krot", "прогноз {forecast}? на чём основан, кроме вибы?"),
             ("gayka", "на трёх независимых источниках."),
             ("hronik", "в марте тоже было три. архив помнит всё."),
         ],
         "arbiter": "прогноз зафиксирован и будет сравнён с фактом. продолжайте работать.",
     },
     {   # спор о статистике
-        "id": "seeds_stat", "needs": {"seeds"}, "kind": "work",
+        "id": "seeds_stat", "kind": "work", "needs": {"seeds"},
         "lines": [
             ("morg", "{seeds} seeds — сериал из одной серии. где разброс?"),
             ("gayka", "минимум по регламенту L1 — три seeds."),
-            ("morg", "минимум — не цель. это планка, чтобы не было стыдно."),
+            ("morg", "минимум — это планка, а не достижение, бро."),
         ],
         "arbiter": "L2 требует больше seeds и настроек. вопросов нет? работаем.",
     },
-    {   # спор о деньгах — коммерческий потенциал
-        "id": "monetization", "needs": {"money"}, "kind": "work",
+    {   # спор о деньгах и индустрии
+        "id": "monetization", "kind": "work", "needs": {"money"},
         "lines": [
-            ("krot", "допустим, подтвердится. кому это продаём?"),
-            ("hronik", "патент — единственный актив, который переживает пиар."),
-            ("shef", "money у карточки {money}. L2 покажет, есть ли что продавать."),
+            ("hronik", "подтвердится — патент на метод раннего останова. рынок: все, кто тренит свои модели."),
+            ("krot", "а рынок готов платить? или опять «технологии будущего»?"),
+            ("shef", "money в карточке {money}. L2 покажет, есть ли что продавать."),
         ],
         "arbiter": "сначала эффект, потом биржа. всем работать.",
     },
     {   # спор о ресурсах
-        "id": "resources", "needs": {"free"}, "kind": "work",
+        "id": "resources", "kind": "work", "needs": {"free"},
         "lines": [
-            ("gayka", "мне нужен ещё один worker. я почти допилила."),
-            ("krot", "она говорит «почти» с прошлого вторника."),
-            ("shef", "свободной VRAM {free} ГБ. слово «почти» в гигабайты не конвертируется."),
+            ("gayka", "дайте ещё воркера. я почти допилила."),
+            ("krot", "«почти» с прошлого вторника, бро."),
+            ("shef", "свободной VRAM {free} ГБ. «почти» в гигабайты не конвертируется."),
         ],
         "arbiter": "lease не даю. следующий.",
     },
-    {   # «шёпот» о заказчике — единственный офтоп-спор
-        "id": "customer_sanity", "needs": set(), "kind": "offtop",
+    {   # троллинг друг друга на тему «мы ИИ»
+        "id": "ai_banter", "kind": "work", "needs": set(),
         "lines": [
-            ("krot", "(тихо) заказчик уверен, что AI — банкомат. чек он не читал."),
-            ("gayka", "идея нормальная. сырьё как у всех."),
-            ("stazhor", "он верит в нас!"),
-            ("morg", "он верил в предыдущую. мы её похоронили. во благо."),
+            ("krot", "у тебя парсер ещё с прошлого квантования. ты индексы вообще видишь?"),
+            ("gayka", "у самого контекст течёт после компрессии. я слышала, как ты forget."),
+            ("skif", "двоечники. у меня uptime лучше ваших прогнозов."),
+        ],
+        "arbiter": "хватит. почините свои баги и доложите. это тоже работа.",
+    },
+    {   # о заказчике — без пометок, с двойным дном
+        "id": "customer_sanity", "kind": "customer", "needs": set(),
+        "lines": [
+            ("krot", "клиент уверен: AI — банкомат. чек он не читал."),
+            ("gayka", "идея нормальная. сырьё как у всех, не выставляйся."),
+            ("stazhor", "он в нас верит!"),
+            ("morg", "он и в прошлую верил. мы её похоронили. кек."),
         ],
         "arbiter": "конвейер один для всех. расходитесь.",
     },
@@ -1025,35 +1065,42 @@ def cooldown_left(conn: sqlite3.Connection, event: str, config: dict | None = No
     return max(0.0, every - (core.now() - last).total_seconds())
 
 
-def _offtop_share(conn: sqlite3.Connection, window: int = 400) -> float:
+def _side_share(conn: sqlite3.Connection, kind: str) -> float:
+    """Доля реплик пула ('customer'|'noise') в окне последних 400."""
     init_db(conn)
+    kind_sql = "('customer','offtop')" if kind == "customer" else "('noise')"
     row = conn.execute(
-        "SELECT SUM(kind='offtop') o, COUNT(*) c FROM (SELECT kind FROM crew_chat "
-        "ORDER BY msg_id DESC LIMIT ?)", (int(window),)).fetchone()
+        f"SELECT SUM(kind IN {kind_sql}) o, COUNT(*) c FROM (SELECT kind FROM crew_chat "
+        "ORDER BY msg_id DESC LIMIT 400)").fetchone()
     if not row or not row["c"]:
         return 0.0
     return float(row["o"] or 0) / float(row["c"])
 
 
-def _offtop_budget(conn: sqlite3.Connection, config: dict | None = None,
-                   batch_size: int = 1) -> int:
-    """Сколько «шептущих» реплик можно добавить сейчас, чтобы доля «шёпота»
-    в окне последних 400 реплик не превысила offtop_share_max (15%).
+def _side_budget(conn: sqlite3.Connection, config: dict | None, kind: str,
+                 batch_size: int = 1, extra_side: int = 0) -> int:
+    """Сколько реплик пула ('customer'|'noise') можно добавить сейчас.
 
-    Считается до вставки: allowed = (cap+допуск)·(окно+пачка) − уже_шёпота.
-    На пустой истории бюджет ~0: сначала рабочие реплики, потом «шёпот».
+    Потолки: customer_share_max (~5-6% реплик про заказчика/AGI) и
+    noise_share_max (~2-3% «кек/лол/епт»). На пустой истории бюджет ~0:
+    сначала рабочие реплики, потом всё остальное. Никаких пометок в чате —
+    пулы различимы только здесь, в статистике.
+
+    extra_side — реплики этого пула, уже добавленные в текущую сцену, но ещё
+    не записанные в базу: без них проверки читают устаревшее окно и пул
+    может наложиться сам на себя (поймано симулятором).
     """
-    cap = float(cfg("offtop_share_max", config))
+    cap = float(cfg(f"{kind}_share_max", config))
     if cap >= 1.0:
         return max(0, int(batch_size))
     init_db(conn)
+    kind_sql = "('customer','offtop')" if kind == "customer" else "('noise')"
     row = conn.execute(
-        "SELECT SUM(kind='offtop') o, COUNT(*) c FROM (SELECT kind FROM crew_chat "
+        f"SELECT SUM(kind IN {kind_sql}) o, COUNT(*) c FROM (SELECT kind FROM crew_chat "
         "ORDER BY msg_id DESC LIMIT 400)").fetchone()
     existing_total = float(row["c"] or 0)
-    existing_offtop = float(row["o"] or 0)
-    allowed = int((cap + 0.02) * (existing_total + max(1, int(batch_size)))) \
-        - int(existing_offtop)
+    existing_kind = float(row["o"] or 0) + int(extra_side)
+    allowed = int((cap + 0.02) * (existing_total + max(1, int(batch_size)))) - int(existing_kind)
     return max(0, allowed)
 
 
@@ -1092,17 +1139,25 @@ def emit(event: str, ctx: dict | None = None, conn: sqlite3.Connection | None = 
 
     lines = render_scene(event, ctx, rng, config)
 
-    # AGI-«шёпот» раз в сутки — целиком и только если влезает в бюджет доли
+    # AGI-день: раз в сутки и только если реплики про «мессию» влезают в пул
     if event != "agi_day" and _agi_day_due(conn):
         agi_lines = render_scene("agi_day", ctx, rng, config)
-        if agi_lines and _offtop_budget(conn, config, len(lines) + len(agi_lines)) \
-                >= len(agi_lines):
+        if agi_lines and _side_budget(conn, config, "customer",
+                                      len(lines) + len(agi_lines)) >= len(agi_lines):
             lines += agi_lines
             core.set_setting(conn, "crew.last.agi_day", core.iso())
 
-    # спор («проверка на прочность» чужой работы)
+    # спор («проверка на прочность» чужой работы); спор о заказчике — только
+    # при свободном бюджете пула, арбитраж Boss всегда проходит (kind=work)
     if event in DISPUTE_EVENTS and rng.random() < float(cfg("dispute_probability", config)):
-        lines += (render_dispute(ctx, rng) or [])
+        dispute_lines = render_dispute(ctx, rng)
+        if dispute_lines:
+            side_n = sum(1 for l in dispute_lines if l.get("kind") == "customer")
+            already = sum(1 for l in lines if l.get("kind") == "customer")
+            if side_n == 0 or _side_budget(conn, config, "customer",
+                                           len(lines) + len(dispute_lines),
+                                           extra_side=already) >= side_n:
+                lines += dispute_lines
 
     # «умная фраза» (приоры 95/90, веса уточняются статистикой)
     if rng.random() < float(cfg("nudge_probability", config)):
@@ -1111,22 +1166,35 @@ def emit(event: str, ctx: dict | None = None, conn: sqlite3.Connection | None = 
                       "nudge_id": nudge["id"], "kind": "work", "event": "nudge"})
         record_nudge(conn, nudge["id"], won=True)
 
-    # 85/15: «шёпот» держим в бюджете доли. Смешанная сцена — подрезается
-    # (рабочие реплики и арбитраж остаются), а целиком офтопная сцена (AGI-день)
-    # вне бюджета отклоняется целиком: полуоборванный диалог — не диалог.
-    offtop_lines = [l for l in lines if l.get("kind") == "offtop"]
-    if offtop_lines:
-        budget = _offtop_budget(conn, config, len(lines))
-        work_lines = [l for l in lines if l.get("kind") != "offtop"]
-        if not work_lines and budget < len(offtop_lines):
-            return result(False, reason="«шёпот» вне бюджета доли — подождём рабочих реплик")
-        kept, offtop_used = [], 0
-        for line in lines:
-            protected = line.get("kind") != "offtop" or line.get("arbiter")
-            if protected or offtop_used < budget:
-                kept.append(line)
-                offtop_used += line.get("kind") == "offtop" and not line.get("arbiter")
-        lines = kept
+    # разовая реплика про заказчика (~5% реплик) — без пометок, как в живом чате
+    if event not in ("agi_day",) and rng.random() < float(cfg("customer_line_probability", config)):
+        already = sum(1 for l in lines if l.get("kind") == "customer")
+        if _side_budget(conn, config, "customer", len(lines) + 1,
+                        extra_side=already) >= 1:
+            agent, text = rng.choice(CUSTOMER_LINES)
+            lines.append({"agent": agent, "kind": "customer",
+                          "text": _fmt(text, ctx), "event": "customer"})
+
+    # слово-паразит / чистая эмоция (~2% реплик): кек, лол, епт, бро
+    if rng.random() < float(cfg("noise_line_probability", config)):
+        already = sum(1 for l in lines if l.get("kind") == "noise")
+        if _side_budget(conn, config, "noise", len(lines) + 1,
+                        extra_side=already) >= 1:
+            agent, text = rng.choice(NOISE_LINES)
+            lines.append({"agent": agent, "kind": "noise",
+                          "text": _fmt(text, ctx), "event": "noise"})
+
+    # целиком сайдовая сцена (AGI-день) вне бюджета отклоняется целиком.
+    # Нудж (kind=work) не считается «держателем пропорции»: поймано симулятором,
+    # когда agi_day + случайный нудж проходили гейт втроём лишними процентами.
+    scene_side = [l for l in lines if l.get("kind") in ("customer", "noise")]
+    scene_work = [l for l in lines if l.get("kind") not in ("customer", "noise")
+                  and not l.get("nudge_id")]
+    if scene_side and (event == "agi_day" or not scene_work):
+        kind = scene_side[0].get("kind", "customer")
+        if _side_budget(conn, config, kind, len(lines)) < len(scene_side):
+            return result(False, reason="пул вне бюджета доли — подождём рабочих реплик")
+
     if not lines:
         return result(False, reason=f"пустая сцена для события {event!r}")
 
@@ -1216,8 +1284,7 @@ def replay_text(items: list[dict]) -> str:
             out.append(f"— событие: {r['event']} —")
             last_event = r["event"]
         mark = " ⚔️" if r.get("dispute_id") else ""
-        whisper = " (шёпот)" if r.get("kind") == "offtop" else ""
-        out.append(f"{r['name']}{mark}{whisper}: {r['text']}")
+        out.append(f"{r['name']}{mark}: {r['text']}")
     return "\n".join(out)
 
 
@@ -1240,8 +1307,10 @@ def stats(conn: sqlite3.Connection, config: dict | None = None) -> dict:
         "max_per_day": int(cfg("max_messages_per_day", config)),
         "total_lines": _total_lines(conn),
         "disputes": int(disputes),
-        "offtop_share": round(_offtop_share(conn), 3),
-        "offtop_cap": float(cfg("offtop_share_max", config)),
+        "customer_share": round(_side_share(conn, "customer"), 3),
+        "customer_cap": float(cfg("customer_share_max", config)),
+        "noise_share": round(_side_share(conn, "noise"), 3),
+        "noise_cap": float(cfg("noise_share_max", config)),
         "open_findings": open_count(conn),
         "muted_until": mute.isoformat() if mute else None,
         "agi_days_left": agi_days_left(config),
@@ -1292,7 +1361,8 @@ def main(argv: list[str]) -> int:
     if cmd == "stats":
         data = stats(conn, config)
         text = (f"Чат экипажа: {data['total_lines']} реплик, споров {data['disputes']}, "
-                f"«шёпота» {data['offtop_share']:.0%} (лимит {data['offtop_cap']:.0%}), "
+                f"о заказчике {data['customer_share']:.0%} (лимит {data['customer_cap']:.0%}), "
+                f"эмодзи-шума {data['noise_share']:.0%}, "
                 f"открытых замечаний {data['open_findings']}, "
                 f"сегодня {data['today_sent']}/{data['max_per_day']} отправок. "
                 f"AGI через {data['agi_days_left']} дн. Цена: 0 GPU-ч, 0 токенов.")

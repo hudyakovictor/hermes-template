@@ -278,8 +278,8 @@ def panel(conn, config: dict | None = None) -> dict:
         review_open = "—"
     try:
         chat = crew.stats(conn, config)
-        chat_s = (f"{chat['total_lines']} реплик, «шёпота» "
-                  f"{chat['offtop_share']:.0%} (лимит {chat['offtop_cap']:.0%})"
+        chat_s = (f"{chat['total_lines']} реплик, о заказчике "
+                  f"{chat['customer_share']:.0%}"
                   + (f", мьют до {chat['muted_until'][11:16]} UTC"
                      if chat.get("muted_until") else ""))
     except Exception:  # noqa: BLE001

@@ -134,16 +134,17 @@ class Invariants:
 
     def check_db(self, conn, where, budget_cap):
         try:
-            share = crew._offtop_share(conn)
-            cap = float(crew.cfg("offtop_share_max", self.config))
-            if share > cap + 0.06:
-                rows = conn.execute(
-                    "SELECT event, agent, kind FROM crew_chat "
-                    "ORDER BY msg_id DESC LIMIT 25").fetchall()
-                tail = ", ".join(f"{r['event']}/{r['kind'][0]}" for r in reversed(rows))
-                self.failures.append(
-                    f"{where}: «шёпот» {share:.0%} выше потолка {cap:.0%}; хвост: {tail}")
-                return
+            for pool, slack in (("customer", 0.03), ("noise", 0.03)):
+                share = crew._side_share(conn, pool)
+                cap = float(crew.cfg(f"{pool}_share_max", self.config))
+                if share > cap + slack:
+                    rows = conn.execute(
+                        "SELECT event, agent, kind FROM crew_chat "
+                        "ORDER BY msg_id DESC LIMIT 25").fetchall()
+                    tail = ", ".join(f"{r['event']}/{r['kind'][0]}" for r in reversed(rows))
+                    self.failures.append(
+                        f"{where}: пул {pool} {share:.0%} выше потолка {cap:.0%}; хвост: {tail}")
+                    return
             batches = crew.sent_today(conn)
             if batches > budget_cap:
                 self.failures.append(
@@ -183,8 +184,10 @@ def run_sim(index: int, seed: int, verbose: bool = False) -> list[str]:
                 "max_lines_per_event": 5,
                 "dispute_probability": rng.choice([0.1, 0.35, 0.9]),
                 "nudge_probability": rng.choice([0.0, 0.2, 0.6]),
-                "offtop_share_max": 0.15, "quiet_hours": "",
-                "agi_arrival": "2030-05-01",
+                "customer_share_max": 0.06, "noise_share_max": 0.03,
+                "customer_line_probability": rng.choice([0.0, 0.25, 0.8]),
+                "noise_line_probability": rng.choice([0.0, 0.1, 0.5]),
+                "quiet_hours": "", "agi_arrival": "2030-05-01",
             },
         }
     }
@@ -275,7 +278,7 @@ def main(argv: list[str]) -> int:
             print(f"OK: {sims}/{sims} симуляций чистые. Инварианты держатся:")
             print("  • формат «Ник:» без мусора и None;")
             print("  • споры закрыты арбитражем Boss;")
-            print("  • «шёпот» в пределах 15%;")
+            print("  • пулы customer ~5% и noise ~2% в пределах потолков;")
             print("  • бюджет доставок и статусы замечаний целы.")
     return 1 if all_failures else 0
 

@@ -119,8 +119,10 @@ def record(conn, hid: str, kind: str, actual=None, seeds_pass: int = 0,
     with open(path, "a", encoding="utf-8") as fh:
         fh.write(text + "\n\n---\n\n")
     crew.safe_emit(f"verdict_{kind}", conn=conn, ctx={
-        "hid": hid, "forecast": row["forecast"], "actual": actual,
-        "dev": None if dev is None else f"{dev:+.0f}",
+        "hid": hid,
+        "forecast": "—" if row["forecast"] is None else f"{row['forecast']:g}%",
+        "actual": "—" if actual in (None, "") else f"{float(actual):g}%",
+        "dev": None if dev is None else f"{dev:+.0f}%",
         "hours": f"{float(gpu_hours):.1f}",
         "seeds": f"{int(seeds_pass)}/{int(seeds_total)}"})
     return {"ok": True, "id": hid, "kind": kind, "deviation": dev,

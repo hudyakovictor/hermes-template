@@ -30,7 +30,10 @@ CREW_CONFIG = {
             "max_lines_per_event": 5,
             "dispute_probability": 1.0,     # споры — всегда, для теста
             "nudge_probability": 0.0,       # нуджи — никогда, для детерминизма
-            "offtop_share_max": 0.15,
+            "customer_line_probability": 0.0,   # пулы — точечно в своих тестах
+            "noise_line_probability": 0.0,
+            "customer_share_max": 0.06,
+            "noise_share_max": 0.03,
             "quiet_hours": "",
             "agi_arrival": "2030-05-01",
         },
@@ -127,35 +130,61 @@ class TestScenes(CrewBase):
 
 
 class TestShare85x15(CrewBase):
-    def test_offtop_declined_on_empty_history(self):
-        # сцена целиком из «шёпота» на пустой истории отклоняется целиком
+    def test_customer_scene_declined_on_empty_history(self):
+        # целиком «customer»-сцена на пустой истории отклоняется целиком
         res = self.emit("agi_day", {"agi": 10, "agi_txt": "10 дней"}, force=True)
         self.assertFalse(res["ok"])
-        self.assertEqual(crew._offtop_share(self.conn), 0.0)
+        self.assertEqual(crew._side_share(self.conn, "customer"), 0.0)
 
-    def test_offtop_fits_after_work_history(self):
-        # после чисто рабочих реплик суточная AGI-сцена встраивается сама
-        # (cooldown 20 ч) — и доля «шёпота» остаётся в потолке
+    def test_customer_fits_after_work_history(self):
+        # при достаточной рабочей истории суточная AGI-сцена встраивается сама
+        # (cooldown 20 ч) — и доля пула остаётся в потолке ~5%
         cfg = {"researchagen": dict(CREW_CONFIG["researchagen"])}
         cfg["researchagen"]["crew"] = dict(CREW_CONFIG["researchagen"]["crew"],
                                            dispute_probability=0.0)
+        for i in range(30):
+            crew.emit("kill", {"hid": f"H-02{i}"}, conn=self.conn, config=cfg,
+                      rng=self.rng, force=True)
+        share = crew._side_share(self.conn, "customer")
+        self.assertGreater(share, 0.0)
+        self.assertLessEqual(share, 0.08)
+
+    def test_pools_are_not_marked_in_replay(self):
+        # в переписке НЕТ пометок вроде «(шёпот)» — пулы различает только stats
+        cfg = {"researchagen": dict(CREW_CONFIG["researchagen"])}
+        cfg["researchagen"]["crew"] = dict(
+            CREW_CONFIG["researchagen"]["crew"],
+            dispute_probability=0.0, customer_line_probability=1.0)
         for _ in range(6):
-            crew.emit("launch", {"hid": "H-020", "burn": 1, "budget": 20,
+            crew.emit("kill", {"hid": "H-030"}, conn=self.conn, config=cfg,
+                      rng=self.rng, force=True)
+            crew.emit("launch", {"hid": "H-031", "burn": 1, "budget": 20,
                                  "level": "L0"}, conn=self.conn, config=cfg,
                       rng=self.rng, force=True)
-        share = crew._offtop_share(self.conn)
-        self.assertGreater(share, 0.0)          # «шёпот» появился
-        self.assertLessEqual(share, 0.21)       # и не пробил потолок
+        text = crew.replay_text(crew.replay(self.conn, 100))
+        self.assertNotIn("шёпот", text)
+        self.assertGreater(crew._side_share(self.conn, "customer"), 0.0)
 
-    def test_budget_formula_is_monotonic(self):
-        b0 = crew._offtop_budget(self.conn, CREW_CONFIG, 10)
+    def test_noise_pool_respects_cap(self):
+        cfg = {"researchagen": dict(CREW_CONFIG["researchagen"])}
+        cfg["researchagen"]["crew"] = dict(
+            CREW_CONFIG["researchagen"]["crew"], dispute_probability=0.0,
+            noise_line_probability=1.0)
+        for _ in range(30):
+            crew.emit("kill", {"hid": "H-032"}, conn=self.conn, config=cfg,
+                      rng=self.rng, force=True)
+        self.assertLessEqual(crew._side_share(self.conn, "noise"), 0.051)
+
+    def test_side_budget_monotonic(self):
+        b0 = crew._side_budget(self.conn, CREW_CONFIG, "customer", 10)
         self.assertGreaterEqual(b0, 0)
-        for _ in range(5):   # рабочая история растёт — бюджет шёпота растёт
+        for _ in range(5):   # рабочая история растёт — бюджет пула растёт
             self.emit("kill", {"hid": "H-021"}, force=True)
-        self.assertGreaterEqual(crew._offtop_budget(self.conn, CREW_CONFIG, 10), b0)
+        self.assertGreaterEqual(
+            crew._side_budget(self.conn, CREW_CONFIG, "customer", 10), b0)
 
     def test_arbiter_is_never_trimmed(self):
-        # спор о заказчике (offtop) не теряет арбитраж Boss при подрезке
+        # спор о заказчике не теряет арбитраж Boss
         cfg = {"researchagen": dict(CREW_CONFIG["researchagen"])}
         cfg["researchagen"]["crew"] = dict(CREW_CONFIG["researchagen"]["crew"],
                                            dispute_probability=1.0)
@@ -172,7 +201,7 @@ class TestShare85x15(CrewBase):
             self.assertEqual(lines[-1]["kind"], "work")
 
     def test_none_ctx_renders_dash(self):
-        # симуляция поймала: None в контексте печаться как «None%»
+        # симуляция поймала: None в контексте печататься как «None%»
         res = self.emit("hypo_new", {"hid": "H-022", "forecast": None}, force=True)
         self.assertTrue(res["ok"])
         for line in res["lines"]:
@@ -356,7 +385,8 @@ class TestReplayAndStats(CrewBase):
                                "hours": 2}, force=True)
         data = crew.stats(self.conn, CREW_CONFIG)
         self.assertEqual(data["cost"], {"gpu_hours": 0.0, "tokens": 0})
-        self.assertIn("offtop_share", data)
+        self.assertIn("customer_share", data)
+        self.assertIn("noise_share", data)
         self.assertIn("open_findings", data)
         self.assertIn("agents", data)
         self.assertTrue(data["nudges"])

@@ -233,7 +233,10 @@ researchagen:
     max_lines_per_event: 5                     # реплик на одну сцену
     dispute_probability: 0.35                  # шанс спора-«проверки на прочность»
     nudge_probability: 0.20                    # шанс фразы-нуджа (приоры 95%/90%)
-    offtop_share_max: 0.15                     # потолок «шёпота» про заказчика (15%)
+    customer_share_max: 0.06                   # потолок реплик про заказчика/AGI (~5%)
+    noise_share_max: 0.03                     # потолок «кек/лол/епт» (~2%)
+    customer_line_probability: 0.25           # шанс такой реплики в сцене
+    noise_line_probability: 0.10
     review_interval_seconds: 1800              # период взаимного ревью (косяки)
     quiet_hours: ""                            # например "23:00-07:59": ночью только в лог
     agi_arrival: "2030-05-01"                  # Часы AGI для «шёпота»
