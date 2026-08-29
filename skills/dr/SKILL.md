@@ -28,6 +28,61 @@ python tools/inbox.py list
 | есть карточки, не прошедшие гейт | Фаза 3 (kill-стадия) |
 | всё чисто | Фаза 1 |
 
+## Governor: admission перед любым Qwen fan-out
+
+В начале каждой фазы проверь план:
+
+```bash
+python tools/rg.py governor plan --mode auto --json
+```
+
+`capacity` — это не рекомендация «создай столько всегда», а верхняя граница
+на текущий тик; `available_slots` уже учитывает active leases, GPU telemetry,
+experiment reserve, budget и фазу. Если `can_spawn=false`, не вызывай
+`delegate_task`: выполни CPU/сетевую работу в текущем parent через
+`execute_code` либо заверши тик без LLM worker.
+
+В `discover` parent может сам выбрать от 0 до `available_slots` независимых
+reasoning-heavy задач. Для каждой задачи сначала создай logical `task_id`,
+зарезервируй lease:
+
+```bash
+python tools/rg.py governor reserve --worker-id R-<tick>-<n> --task-id R-<tick>-<n> --json
+```
+
+Затем вызови нативный Hermes `delegate_task` с этим task_id в context. После
+summary/отчёта обязательно `release --lease <id>`; при отказе/падении — тоже.
+Не используй `role=orchestrator`, nested delegation или фиксированный swarm.
+`max_concurrent_children=2` в config — только static ceiling одного batch, не
+замена governor.
+
+Когда `mode=testing`, `mode=analyze`, active experiment или capacity=0 —
+новых research children создавать нельзя. Если у тебя уже есть leases в
+`pause_requested`, останови/steer child нативным `delegate_task` до checkpoint,
+затем отметь:
+
+```bash
+python tools/rg.py governor checkpoint --lease <id> --checkpoint <file-or-state>
+# либо после native stop:
+python tools/rg.py governor stop-confirm --lease <id>
+```
+
+### Контракт отчёта child
+
+Child summary сначала превращается в JSON-файл и проверяется:
+
+```bash
+python tools/rg.py governor report --file reports/worker-<task_id>.json \
+  --worker-id R-<tick>-<n> --json
+```
+
+Минимальные поля: `task_id`, `status`, `claims`, `evidence_refs`, `sources`,
+`confidence` (0..1), `duplicate_of` (или null), `recommended_next_action`,
+`changed_files`, `resource_usage`; для `failed` обязателен `failure_reason`.
+Валидный отчёт имеет `review_pending=true`: он **не** создаёт гипотезу и не
+добавляет evidence. Parent проверяет первоисточники, убирает дубли и только
+потом вызывает существующие `/h`, `hypo.py check` и kill-stage.
+
 ## Фаза 1 — добыча сигналов
 
 Источники и термины — только из `FOCUS.md`. Искать надо **аномалии**, а не обзоры:
@@ -80,6 +135,23 @@ python tools/hypo.py kill H-XXX --why "<что именно убило>" --lesso
 
 См. скилл `/v`. Главное правило: результат всегда сравнивается с ЗАРАНЕЕ зафиксированным
 прогнозом. Подгонка прогноза пост-фактум — грубое нарушение.
+
+## Bottom Detection (гибридный слой, опционально)
+
+Если нужна систематическая разведка регионов, а не только один поисковый запрос,
+выполни одну итерацию:
+
+```bash
+python tools/rg.py bottom run --iterations 1
+```
+
+После этого используй native MCP-инструменты Hermes для проверки источников и занеси
+их с provenance через `/bottom evidence`. Bottom Detection пишет в ту же SQLite, но
+не запускает GPU и не закрывает научный вердикт; promotion всё равно проходит
+`hypo.py check` и kill-stage. Если отдельный evaluator обращается к локальному
+Qwen, он обязан получить governor research lease; иначе оставь его сетевым/CPU-only.
+При отключённом `researchagen.bottom_detection.enabled` работай обычным `/dr` без
+этого слоя.
 
 ## Завершение тика
 

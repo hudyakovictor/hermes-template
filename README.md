@@ -19,8 +19,8 @@
 
 | Свойство | Как сделано |
 |---|---|
-| Полная автономия | Два независимых контура: диспетчер GPU (cron 2 мин, чистый Python) и исследовательские тики (cron 25 мин, одна фаза `/dr`) |
-| Решения о GPU принимает код | Гейты VRAM, суточного бюджета, подтверждения и вытеснения — в `tools/dispatch.py`, а не в промпте |
+| Полная автономия | Диспетчер GPU (cron 2 мин), исследовательские тики (cron 25 мин) и общий stdlib governor с SQLite leases |
+| Решения о fan-out/GPU принимает код | Dynamic capacity, VRAM/utilization, pause/resume, суточный budget и experiment lock — в `tools/governor.py`/`tools/dispatch.py`, а не только в промпте |
 | Ни одного внешнего пакета | Только Python stdlib, `sh` и PowerShell 5.1 |
 | Телеметрия и управление в Telegram | Управление — штатный шлюз Hermes; телеметрия — отправка только через Bot API (второго long-polling нет) |
 | Два пользователя — одна картина | Единая SQLite в `state/`, любой `/status` читает одни и те же факты |
@@ -72,19 +72,27 @@ researchagen chat            # ручная сессия, когда нужно 
 
 ## Команды
 
-Исследование: `/dr` `/mine` `/h` `/kill`
+Исследование: `/dr` `/mine` `/h` `/kill` `/bottom`
 Исполнение: `/pool` `/next` `/launch` `/preempt` `/v`
-Управление: `/auto` `/panel` `/digest` `/gpu` `/calib` `/patent` `/add` `/board` `/doctor`
+Управление: `/auto` `/governor` `/panel` `/digest` `/gpu` `/calib` `/patent` `/add` `/board` `/doctor`
 
-Единая точка входа без модели: `python tools/rg.py <команда>`.
+`/bottom` — опциональный гибридный Bottom Detection: дерево регионов,
+backtracking, transformations и async evaluators. Он не обходит kill-stage,
+очередь, governor или GPU-диспетчер. Подробно: [docs/BOTTOM-DETECTION.md](docs/BOTTOM-DETECTION.md);
+дополнительный 30-пунктовый аудит: [docs/BOTTOM-DETECTION-AUDIT.md](docs/BOTTOM-DETECTION-AUDIT.md).
+Архитектура bounded delegation и GPU admission описана в [docs/GOVERNOR.md](docs/GOVERNOR.md).
+
+Единая точка входа без модели: `python tools/rg.py <команда>`. Для Bottom Detection:
+`python tools/rg.py bottom run --iterations 1`. Перед изменением governor cap используйте
+live calibration: `python tools/rg.py benchmark --concurrencies 1,2 --requests-per-level 3`.
 
 ## Структура
 
 ```
 MISSION.md SOUL.md .hermes.md FOCUS.md   — цель, характер, правила, текущий фокус
 config.yaml .env.EXAMPLE                 — конфигурация и шаблон секретов
-tools/                                   — 15 инструментов (stdlib-only)
-skills/                                  — 18 скиллов = слеш-команды
+tools/                                   — основной контур, governor/admission + hybrid Bottom Detection (stdlib-only)
+skills/                                  — 20 скиллов = слеш-команды
 cron/                                    — 5 задач автономного контура
 hooks/BOOT.md                            — что делать в начале сессии
 docs/                                    — архитектура, Telegram, эксплуатация, оценка

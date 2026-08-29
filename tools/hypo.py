@@ -7,7 +7,7 @@ SQLite — источник порядка. `check` — гейт перед за
 CLI:
   python tools/hypo.py new "название" [--signals 3] [--hours 4] [--forecast 12] ...
   python tools/hypo.py check H-001 [--json]     # exit 0 = запуск разрешён
-  python tools/hypo.py kill H-001 --reason "найдена публикация 2025.11"
+  python tools/hypo.py kill H-001 --why "найдена публикация 2025.11" --lesson "проверять gap по трём формулировкам"
   python tools/hypo.py card H-001            # печать карточки
 """
 
@@ -124,9 +124,36 @@ def write_card(hid: str, title: str, **kw) -> str:
         novelty=kw.get("novelty", 0.5), kill_checks=checks,
     )
     path = card_path(hid)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w", encoding="utf-8") as fh:
         fh.write(body)
     return path
+
+
+def fields_from_args(argv: list[str]) -> dict:
+    """Extract the common hypothesis fields used by CLI and inbox promotion."""
+    return {
+        "title": core.arg(argv, "title"),
+        "signals": core.arg(argv, "signals", 0),
+        "novelty": core.arg(argv, "novelty", 0.5),
+        "early_pct": core.arg(argv, "early", 10.0),
+        "standard": core.arg(argv, "standard", 0.4),
+        "money": core.arg(argv, "money", 0.4),
+        "decidability": core.arg(argv, "decidability", 0.5),
+        "est_hours": core.arg(argv, "hours", 4.0),
+        "forecast": core.arg(argv, "forecast"),
+        "source": core.arg(argv, "source", "dr"),
+    }
+
+
+def create(conn, title: str, fields: dict) -> dict:
+    """Create a queued hypothesis and its card from an inbox lead."""
+    values = dict(fields)
+    values.pop("title", None)
+    row = q.add(conn, title, **values)
+    path = write_card(row["id"], title, **values)
+    q.update_fields(conn, row["id"], card_path=path)
+    return dict(conn.execute("SELECT * FROM hypotheses WHERE id=?", (row["id"],)).fetchone())
 
 
 def _section_filled(text: str, name: str) -> bool:
@@ -232,13 +259,16 @@ def main(argv: list[str]) -> int:
 
     if cmd == "kill":
         hid = argv[2] if len(argv) > 2 else core.fail("нужен id")
-        reason = core.arg(argv, "reason", "причина не указана")
+        reason = core.arg(argv, "why") or core.arg(argv, "reason", "")
+        lesson = core.arg(argv, "lesson", "")
+        if not reason.strip() or not lesson.strip():
+            core.fail("нужны конкретные причина --why и переносимый урок --lesson")
         q.set_status(conn, hid, "killed")
         q.update_fields(conn, hid, notes=f"killed: {reason}")
-        core.log_event(conn, "hypo.killed", hid, reason=reason)
+        core.log_event(conn, "hypo.killed", hid, reason=reason, lesson=lesson)
         with open(os.path.join(core.MEMORY_DIR, "killed.md"), "a", encoding="utf-8") as fh:
-            fh.write(f"- {core.iso()} {hid}: {reason}\n")
-        core.emit({"ok": True, "id": hid, "reason": reason}, as_json,
+            fh.write(f"- {core.iso()} {hid}: {reason} | урок: {lesson}\n")
+        core.emit({"ok": True, "id": hid, "reason": reason, "lesson": lesson}, as_json,
                   f"{hid} снята до эксперимента — {reason} (урок записан в memory/killed.md)")
         return 0
 

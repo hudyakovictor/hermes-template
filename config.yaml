@@ -23,6 +23,18 @@ agent:
   reasoning_effort: medium
   clarify_timeout: 900                         # 15 мин на ответ на inline-кнопку, потом решает сам
 
+# ---------------------------------------------------------------- native Hermes delegation
+# Это только верхняя граница batch. Реальное число workers выбирает parent
+# через tools/rg.py governor plan и reserve; max_concurrent_children не является
+# GPU-lock и не заменяет admission controller.
+delegation:
+  max_iterations: 16                           # короткий leaf-turn; checkpoint в SQLite
+  max_concurrent_children: 2                    # conservative cap для одной GPU
+  max_spawn_depth: 1                            # flat: parent → leaf, без swarm tree
+  orchestrator_enabled: false                   # nested fan-out запрещён
+  provider: local_qwen
+  model: ${RESEARCHAGEN_MODEL_NAME}
+
 # ---------------------------------------------------------------- терминал
 terminal:
   backend: local
@@ -102,6 +114,9 @@ quick_commands:
   doctor:
     type: exec
     command: python tools/selfcheck.py all
+  governor:
+    type: exec
+    command: python tools/rg.py governor plan --json
 
 # ---------------------------------------------------------------- Telegram
 platforms:
@@ -116,7 +131,7 @@ platforms:
       command_menu:
         max_commands: 60
         priority_mode: prepend
-        priority: [pool, next, dr, add, launch, v, h, digest, gpu, auto]
+        priority: [pool, next, dr, add, launch, v, h, digest, gpu, governor, auto]
       dm_topics:
         - chat_id: ${TELEGRAM_HOME_CHANNEL}     # <<INSTALLER>>
           ignore_root_dm: false
@@ -148,8 +163,8 @@ database:
 # Читаются только инструментами tools/*.py через tools/core.py.
 # Hermes игнорирует неизвестные топ-левел секции.
 researchagen:
-  platform: windows                            # <<INSTALLER>> windows | macos
-  mode: production                             # <<INSTALLER>> production (win) | debug (macos)
+  platform: <<INSTALLER_PLATFORM>>              # windows | macos | linux
+  mode: <<INSTALLER_MODE>>                      # production | debug
   autolaunch: true                             # R4: автозапуск экспериментов
   limits:
     approval_gpu_hours: 12                     # R7: дороже — только с /approve
@@ -158,6 +173,27 @@ researchagen:
     gpu_free_gb_required: 20                   # минимум свободной VRAM для L1+
     max_parallel_experiments: 1                # GPU — один ресурс
     daily_gpu_hours_budget: 20
+  # Autonomous admission around native delegate_task/Kanban workers.
+  # research_worker_vram_gb and thresholds are conservative starting points;
+  # calibrate them with a live Qwen/GPU benchmark before raising the cap.
+  governor:
+    enabled: true
+    default_mode: discover
+    max_research_children: 2                   # dynamic capacity never exceeds this
+    max_triage_children: 1                     # kill-stage / synthesis is narrower
+    research_worker_vram_gb: 4                  # estimated incremental KV/cache budget
+    experiment_reserve_gb: 8                   # keep headroom before a GPU experiment
+    min_free_vram_gb: 4                        # below this: fail closed
+    low_free_vram_gb: 6                        # degraded path: at most one worker
+    critical_free_vram_gb: 2                   # below this: zero workers
+    high_utilization_pct: 85                   # degraded path: at most one worker
+    saturated_utilization_pct: 95               # zero workers
+    daily_research_task_budget: 12             # admission units/day; 0 = unlimited
+    lease_ttl_seconds: 300
+    debug_research_capacity: 1
+    prioritize_ready_experiments: true
+    hermes_cron_control: true                  # pause/resume research-loop in testing
+    research_cron_job: research-loop
   pi_weights:                                  # пересчитываются cron'ом weekly-recalib
     signals: 0.22
     novelty: 0.16
@@ -181,3 +217,26 @@ researchagen:
   telegram:
     progress_every_seconds: 900                # карточка прогресса не чаще раза в 15 мин
     digest_hour: 9
+  bottom_detection:                            # гибридный поисковый слой
+    enabled: true
+    domain: training-dynamics
+    llm_model: local
+    mcp_tools: arxiv,pubmed,google_scholar,github
+    transformation_dictionary: null               # optional JSON path
+    num_initial_regions: 10
+    max_parallel_evaluations: 5                # hard cap: 1..10
+    max_iterations: 200                       # per run; state iteration is cumulative
+    target_confirmed_hypotheses: 3
+    max_cost_usd: 10
+    mcp_rate_limit: 100                         # запросов/час
+    mcp_cache_ttl_hours: 24
+    retry_attempts: 3
+    retry_base_seconds: 0.25
+    region_no_signal_limit: 2
+    min_signal_score: 0.55
+    max_region_depth: 3
+    max_candidates_per_region: 4
+    max_transformations_per_hypothesis: 8
+    enable_metrics: true
+    log_level: INFO
+    log_format: json

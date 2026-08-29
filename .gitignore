@@ -17,6 +17,7 @@ local/
 # Собственное состояние профиля (очередь, вердикты, калибровка)
 state/
 reports/*.md
+reports/*.json
 !reports/.gitkeep
 signals/*
 !signals/.gitkeep

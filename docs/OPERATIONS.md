@@ -29,6 +29,18 @@
 Если нужно сейчас — `/preempt`, который ставит флаг чекпойнта и даёт раннеру
 корректно сохранить частичные результаты. `/resume` — вернуть как было.
 
+Для управления research/Qwen admission смотри `/governor`:
+
+```bash
+python tools/rg.py governor status --json
+python tools/rg.py governor mode testing
+python tools/rg.py governor mode discover
+```
+
+`testing` ставит research cron на паузу, закрывает новые leases и ждёт
+checkpoint активных workers. `/v` после `finish` возвращает режим в `discover`;
+один `/pause` диспетчера сам по себе research workers не убивает.
+
 ### Контур молчит сутки
 
 ```bash

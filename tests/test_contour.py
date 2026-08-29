@@ -316,6 +316,9 @@ class TestConfigAndEnv(unittest.TestCase):
         self.assertIn("researchagen", conf)
         self.assertIsNotNone(core.cfg("researchagen.limits.preempt_ratio",
                                       None, conf))
+        self.assertEqual(core.cfg("delegation.max_spawn_depth", None, conf), 1)
+        self.assertFalse(core.cfg("delegation.orchestrator_enabled", True, conf))
+        self.assertEqual(core.cfg("researchagen.governor.max_research_children", None, conf), 2)
 
     def test_cfg_returns_default_for_missing(self):
         self.assertEqual(core.cfg("researchagen.нет.такого", 42, {}), 42)

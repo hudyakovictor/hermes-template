@@ -32,6 +32,51 @@ import sys
 
 import core
 
+# ``tools/queue.py`` is intentionally the profile queue API, but it is also
+# discoverable as top-level ``queue`` when ``tools`` is on sys.path.  Several
+# stdlib modules (notably concurrent.futures, used by HTTPMCPTransport) require
+# ``queue.SimpleQueue``.  Export the stdlib-compatible primitive to avoid a
+# namespace collision without renaming the public profile module.
+try:
+    from _queue import Empty, SimpleQueue
+except ImportError:  # pragma: no cover - CPython provides _queue
+    from collections import deque
+    from threading import Condition
+
+    class Empty(Exception):
+        pass
+
+    class SimpleQueue:  # type: ignore[no-redef]
+        def __init__(self):
+            self._items = deque()
+            self._condition = Condition()
+
+        def put(self, item, block=True, timeout=None):
+            del block, timeout
+            with self._condition:
+                self._items.append(item)
+                self._condition.notify()
+
+        put_nowait = put
+
+        def get(self, block=True, timeout=None):
+            with self._condition:
+                if not block and not self._items:
+                    raise Empty
+                while not self._items:
+                    self._condition.wait(timeout)
+                    if timeout is not None and not self._items:
+                        raise Empty
+                return self._items.popleft()
+
+        def get_nowait(self):
+            return self.get(False)
+
+        def empty(self):
+            with self._condition:
+                return not self._items
+
+
 SIGNAL_SCALE = {0: 0.0, 1: 0.0, 2: 0.0, 3: 0.50, 4: 0.67, 5: 0.84}
 
 

@@ -20,6 +20,7 @@ import urllib.request
 
 import core
 import gpu
+import governor
 import queue as q
 
 OK, WARN, FAIL = "OK", "WARN", "FAIL"
@@ -162,6 +163,30 @@ def check_python() -> list[dict]:
     return [_check("python", state, f"{sys.version.split()[0]} — нужен 3.9+ (только stdlib)")]
 
 
+def check_governor() -> list[dict]:
+    config = core.load_config()
+    enabled = governor.enabled(config)
+    max_children = int(core.cfg("delegation.max_concurrent_children", 0, config) or 0)
+    max_depth = int(core.cfg("delegation.max_spawn_depth", 0, config) or 0)
+    if not enabled:
+        return [_check("governor", FAIL, "research/GPU admission controller отключён")]
+    if max_children < 1 or max_depth != 1:
+        return [_check("governor", FAIL,
+                       f"unsafe Hermes delegation cap: children={max_children}, depth={max_depth}")]
+    conn = None
+    try:
+        conn = core.db()
+        plan = governor.plan(conn, config)
+        return [_check("governor", OK,
+                       f"mode={plan['mode']}, capacity={plan.get('capacity', 0)}, "
+                       f"available={plan.get('available_slots', 0)}")]
+    except Exception as exc:  # noqa: BLE001
+        return [_check("governor", FAIL, str(exc))]
+    finally:
+        if conn is not None:
+            conn.close()
+
+
 def run_all() -> dict:
     checks: list[dict] = []
     checks += check_python()
@@ -170,6 +195,7 @@ def run_all() -> dict:
     checks += check_isolation()
     checks += check_model()
     checks += check_gpu()
+    checks += check_governor()
     checks += check_db()
     fails = [c for c in checks if c["state"] == FAIL]
     warns = [c for c in checks if c["state"] == WARN]

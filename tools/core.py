@@ -183,13 +183,13 @@ def cfg(dotted: str, default=None, config: dict | None = None):
 def platform_mode(config: dict | None = None) -> tuple[str, bool]:
     """(platform, is_debug). macOS — отладочный контур: эксперименты dry-run."""
     plat = str(cfg("researchagen.platform", "", config) or "").lower()
-    if not plat:
+    if not plat or plat.startswith("<<installer_") or plat.startswith("${"):
         plat = "macos" if sys.platform == "darwin" else (
             "windows" if os.name == "nt" else "linux")
     mode = str(cfg("researchagen.mode", "", config) or "").lower()
-    if not mode:
+    if not mode or mode.startswith("<<installer_") or mode.startswith("${"):
         mode = "debug" if plat == "macos" else "production"
-    return plat, mode == "debug"
+    return plat, mode in ("debug", "true", "1")
 
 
 # --------------------------------------------------------------------------- SQLite
@@ -263,9 +263,139 @@ CREATE TABLE IF NOT EXISTS settings (
     updated_at   TEXT NOT NULL
 );
 
+-- Governor leases are the durable admission ledger shared by the parent
+-- Hermes session, cron ticks and experiment processes.  They are deliberately
+-- separate from hypotheses/runs: scientific state remains authoritative there.
+CREATE TABLE IF NOT EXISTS governor_leases (
+    lease_id           TEXT PRIMARY KEY,
+    owner_id           TEXT NOT NULL,
+    kind               TEXT NOT NULL,       -- research | experiment
+    state              TEXT NOT NULL DEFAULT 'active',
+    mode               TEXT NOT NULL,
+    task_id            TEXT,
+    requested_vram_gb  REAL,
+    acquired_at        TEXT NOT NULL,
+    heartbeat_at       TEXT NOT NULL,
+    expires_at         TEXT,
+    checkpoint         TEXT,
+    reason             TEXT,
+    metadata           TEXT NOT NULL DEFAULT '{}'
+);
+
+CREATE TABLE IF NOT EXISTS governor_reports (
+    report_id       INTEGER PRIMARY KEY AUTOINCREMENT,
+    worker_id       TEXT,
+    task_id         TEXT,
+    status          TEXT NOT NULL,
+    accepted        INTEGER NOT NULL DEFAULT 0,
+    payload         TEXT NOT NULL,
+    errors          TEXT NOT NULL DEFAULT '[]',
+    created_at      TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS bd_meta (
+    namespace    TEXT NOT NULL,
+    key          TEXT NOT NULL,
+    value        TEXT NOT NULL,
+    updated_at   TEXT NOT NULL,
+    PRIMARY KEY (namespace, key)
+);
+
+CREATE TABLE IF NOT EXISTS bd_regions (
+    namespace         TEXT NOT NULL,
+    id                TEXT NOT NULL,
+    parent_id         TEXT,
+    name              TEXT NOT NULL,
+    query             TEXT NOT NULL,
+    depth             INTEGER NOT NULL DEFAULT 0,
+    status            TEXT NOT NULL DEFAULT 'frontier',
+    visits            INTEGER NOT NULL DEFAULT 0,
+    signal_score      REAL NOT NULL DEFAULT 0.0,
+    no_signal_streak  INTEGER NOT NULL DEFAULT 0,
+    metadata          TEXT NOT NULL DEFAULT '{}',
+    created_at        TEXT NOT NULL,
+    updated_at        TEXT NOT NULL,
+    PRIMARY KEY (namespace, id)
+);
+
+CREATE TABLE IF NOT EXISTS bd_hypotheses (
+    namespace          TEXT NOT NULL,
+    id                 TEXT NOT NULL,
+    region_id          TEXT NOT NULL,
+    text               TEXT NOT NULL,
+    mechanism          TEXT NOT NULL DEFAULT '',
+    status             TEXT NOT NULL DEFAULT 'candidate',
+    signal_sources     TEXT NOT NULL DEFAULT '[]',
+    evidence_ids       TEXT NOT NULL DEFAULT '[]',
+    novelty_score      REAL NOT NULL DEFAULT 0.0,
+    mechanism_score    REAL NOT NULL DEFAULT 0.0,
+    experiment_score   REAL NOT NULL DEFAULT 0.0,
+    commercial_score   REAL NOT NULL DEFAULT 0.0,
+    decidability_score REAL NOT NULL DEFAULT 0.0,
+    priority           REAL NOT NULL DEFAULT 0.0,
+    estimated_hours   REAL NOT NULL DEFAULT 0.25,
+    forecast           REAL,
+    origin_id          TEXT,
+    metadata           TEXT NOT NULL DEFAULT '{}',
+    created_at         TEXT NOT NULL,
+    updated_at         TEXT NOT NULL,
+    PRIMARY KEY (namespace, id)
+);
+
+CREATE TABLE IF NOT EXISTS bd_evidence (
+    namespace        TEXT NOT NULL,
+    id               TEXT NOT NULL,
+    candidate_id     TEXT NOT NULL,
+    source           TEXT NOT NULL,
+    claim            TEXT NOT NULL,
+    kind             TEXT NOT NULL DEFAULT 'literature',
+    independent_key  TEXT NOT NULL DEFAULT '',
+    strength         REAL NOT NULL DEFAULT 0.0,
+    metadata         TEXT NOT NULL DEFAULT '{}',
+    created_at       TEXT NOT NULL,
+    PRIMARY KEY (namespace, id)
+);
+
+CREATE TABLE IF NOT EXISTS bd_history (
+    history_id   INTEGER PRIMARY KEY AUTOINCREMENT,
+    namespace    TEXT NOT NULL,
+    run_id       INTEGER,
+    iteration    INTEGER NOT NULL DEFAULT 0,
+    event        TEXT NOT NULL,
+    region_id    TEXT,
+    hypothesis_id TEXT,
+    payload      TEXT NOT NULL DEFAULT '{}',
+    created_at   TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS bd_cache (
+    namespace    TEXT NOT NULL,
+    cache_key    TEXT NOT NULL,
+    payload      TEXT NOT NULL,
+    expires_at   TEXT NOT NULL,
+    PRIMARY KEY (namespace, cache_key)
+);
+
+CREATE TABLE IF NOT EXISTS bd_runs (
+    run_id       INTEGER PRIMARY KEY AUTOINCREMENT,
+    namespace    TEXT NOT NULL,
+    started_at   TEXT NOT NULL,
+    finished_at  TEXT,
+    iterations   INTEGER NOT NULL DEFAULT 0,
+    cost_usd     REAL NOT NULL DEFAULT 0.0,
+    status       TEXT NOT NULL DEFAULT 'running',
+    summary      TEXT NOT NULL DEFAULT '{}'
+);
+
 CREATE INDEX IF NOT EXISTS idx_hypo_status ON hypotheses(status);
 CREATE INDEX IF NOT EXISTS idx_runs_state ON runs(state);
 CREATE INDEX IF NOT EXISTS idx_events_kind ON events(kind, created_at);
+CREATE INDEX IF NOT EXISTS idx_governor_leases_state ON governor_leases(kind, state, acquired_at);
+CREATE INDEX IF NOT EXISTS idx_governor_leases_owner ON governor_leases(owner_id, state);
+CREATE INDEX IF NOT EXISTS idx_governor_reports_task ON governor_reports(task_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_bd_history_namespace ON bd_history(namespace, created_at);
+CREATE INDEX IF NOT EXISTS idx_bd_regions_frontier ON bd_regions(namespace, status, signal_score);
+CREATE INDEX IF NOT EXISTS idx_bd_hypotheses_region ON bd_hypotheses(namespace, region_id, status);
 """
 
 
