@@ -19,6 +19,7 @@ import urllib.error
 import urllib.request
 
 import core
+import crew
 import gpu
 import governor
 import queue as q
@@ -187,6 +188,27 @@ def check_governor() -> list[dict]:
             conn.close()
 
 
+def check_chat() -> list[dict]:
+    """Чат экипажа: таблица живая и топик для доставок указан."""
+    out = []
+    try:
+        conn = core.db()
+        crew.init_db(conn)
+        n = int(conn.execute("SELECT COUNT(*) FROM crew_chat").fetchone()[0])
+        conn.close()
+        out.append(_check("чат экипажа (таблица)", OK,
+                          f"crew_chat доступна, реплик: {n} (/chat)"))
+    except Exception as exc:  # noqa: BLE001
+        out.append(_check("чат экипажа (таблица)", FAIL, str(exc)))
+    env = core.load_env()
+    thread = env.get("TELEGRAM_CHAT_THREAD_ID", "") or env.get("TELEGRAM_CREW_THREAD_ID", "")
+    out.append(_check("чат экипажа (топик)",
+                      OK if thread else WARN,
+                      thread if thread else
+                      "TELEGRAM_CHAT_THREAD_ID пуст: переписка только в базе (/chat)"))
+    return out
+
+
 def run_all() -> dict:
     checks: list[dict] = []
     checks += check_python()
@@ -196,6 +218,7 @@ def run_all() -> dict:
     checks += check_model()
     checks += check_gpu()
     checks += check_governor()
+    checks += check_chat()
     checks += check_db()
     fails = [c for c in checks if c["state"] == FAIL]
     warns = [c for c in checks if c["state"] == WARN]

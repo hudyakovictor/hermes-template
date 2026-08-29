@@ -12,8 +12,8 @@
   python tools/rg.py pause | resume | approve H-007
   python tools/rg.py governor plan | mode | reserve | report
   python tools/rg.py benchmark --concurrencies 1,2
-  python tools/rg.py gossip [--n 30]                 # последние реплики Курилки
-  python tools/rg.py crew emit|replay|stats|test     # движок чата агентов
+  python tools/rg.py chat [--n 30]                  # история чата экипажа
+  python tools/rg.py crew emit|replay|review|stats|mute|test
 """
 
 from __future__ import annotations
@@ -67,6 +67,7 @@ def main(argv: list[str]) -> int:
         "recalib": lambda: calib.main([argv[0], "apply"] + argv[2:]),
         "doctor": lambda: selfcheck.main([argv[0], "all"] + argv[2:]),
         "bottom": lambda: bottom_detection_cli.main([argv[0]] + argv[2:]),
+        "chat": lambda: crew.main([argv[0], "replay"] + argv[2:]),
         "gossip": lambda: crew.main([argv[0], "replay"] + argv[2:]),
         "crew": lambda: crew.main([argv[0]] + argv[2:]),
     }

@@ -282,6 +282,7 @@ def main(argv: list[str]) -> int:
 
     if cmd == "tick":
         res = tick(conn, config)
+        crew.safe_review(conn, config)   # взаимное ревью по расписанию
         core.emit(res, as_json, f"[{res['action']}] " + str(
             res.get("reason") or res.get("why") or res.get("hypo_id") or ""))
         return 0

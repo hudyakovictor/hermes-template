@@ -245,14 +245,17 @@ def main(argv: list[str]) -> int:
         data = digest(conn, config)
         if core.flag(argv, "send"):
             tg.send(data["text"])
-            crew.safe_emit("digest", conn=conn, config=config)
+            crew.safe_emit("digest", conn=conn, config=config,
+                           ctx={"open_findings": crew.open_count(conn)})
         core.emit(data, as_json, data["text"])
         return 0
     if cmd == "weekly":
         data = weekly(conn, config)
         if core.flag(argv, "send"):
             tg.send(data["text"])
-            crew.safe_emit("digest", conn=conn, config=config)
+            bias = v.calibration(conn).get("bias_pct")
+            crew.safe_emit("weekly", conn=conn, config=config,
+                           ctx={"bias": bias if bias is not None else 0})
         core.emit(data, as_json, data["text"])
         return 0
     if cmd == "patent":

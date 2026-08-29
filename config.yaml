@@ -141,7 +141,7 @@ platforms:
             - { name: "📋 Очередь",      icon_color: 9367192,  skill: pool }
             - { name: "🧪 Эксперименты", icon_color: 4368165,  skill: launch }
             - { name: "⚖️ Вердикты",     icon_color: 16753697, skill: verdict }
-            - { name: "🎭 Курилка",      icon_color: 16749890, skill: gossip }
+            - { name: "💬 Чат",          icon_color: 16749890, skill: chat }
 
 gateway:
   streaming:
@@ -218,17 +218,19 @@ researchagen:
   telegram:
     progress_every_seconds: 900                # карточка прогресса не чаще раза в 15 мин
     digest_hour: 9
-  crew:                                        # «Курилка»: живой чат экипажа в Telegram
+  crew:                                        # «Чат»: рабочая переписка экипажа
     enabled: true
-    # Топик «🎭 Курилка»: его thread_id в .env (TELEGRAM_CREW_THREAD_ID).
-    # Нет топика — сцены пишутся только в базу, контур не страдает.
-    thread_env: TELEGRAM_CREW_THREAD_ID
-    max_messages_per_day: 30                   # жёсткий бюджет болтовни в сутки
-    max_lines_per_event: 4                     # реплик на одну сцену
-    dispute_probability: 0.30                  # шанс «проверки на прочность» (спор)
-    nudge_probability: 0.22                    # шанс фразы-нуджа (приоры 95%/90%)
+    # Топик «💬 Чат»: его thread_id в .env (TELEGRAM_CHAT_THREAD_ID).
+    # Нет топика — переписка пишется только в базу, контур не страдает.
+    thread_env: TELEGRAM_CHAT_THREAD_ID
+    max_messages_per_day: 30                   # жёсткий бюджет сообщений в сутки
+    max_lines_per_event: 5                     # реплик на одну сцену
+    dispute_probability: 0.35                  # шанс спора-«проверки на прочность»
+    nudge_probability: 0.20                    # шанс фразы-нуджа (приоры 95%/90%)
+    offtop_share_max: 0.15                     # потолок «шёпота» про заказчика (15%)
+    review_interval_seconds: 1800              # период взаимного ревью (косяки)
     quiet_hours: ""                            # например "23:00-07:59": ночью только в лог
-    agi_arrival: "2030-05-01"                  # Часы AGI для чёрного юмора
+    agi_arrival: "2030-05-01"                  # Часы AGI для «шёпота»
   bottom_detection:                            # гибридный поисковый слой
     enabled: true
     domain: training-dynamics
