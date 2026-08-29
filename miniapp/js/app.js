@@ -29,7 +29,6 @@ const STATUS_RU = { queued: "в очереди", running: "на GPU", blocked: "
   paused_checkpoint: "пауза-чекпойнт", confirmed: "подтверждена", partial: "частично",
   rejected: "опровергнута", killed: "снята", archived: "архив" };
 const KIND_RU = { confirmed: "Подтверждено", partial: "Частично", rejected: "Опровергнуто", killed: "Снято" };
-const MODE_RU = { discover: "поиск идей", triage: "отбор", testing: "прогон", analyze: "разбор", paused: "пауза" };
 const CHECK_RU = { pass: "✓", fail: "✕", run: "↻", wait: "•" };
 /* SVG-иконки: одна оптическая масса (24×24, currentColor), рендер 16–18px */
 const ICO = {
@@ -180,13 +179,11 @@ function progressHTML(p, paused) {
 /* --------------------------------------------------------------- хедер */
 function renderHeader() {
   const d = S.data;
-  const conn = $("#conn"), connTxt = $("#conn-txt"), upd = $("#upd"), mode = $("#mode-line");
+  const conn = $("#conn"), connTxt = $("#conn-txt"), upd = $("#upd");
   if (S.offline) { conn.className = "conn off"; connTxt.textContent = "нет связи"; }
   else if (d && d.mode === "demo") { conn.className = "conn demo"; connTxt.textContent = "демо-симуляция"; }
   else { conn.className = "conn"; connTxt.textContent = "онлайн"; }
-  if (!d) { mode.textContent = "…"; upd.textContent = "—"; return; }
-  const g = d.gov;
-  mode.textContent = `${MODE_RU[g.mode] || g.mode} · бюджет ${fmtN(g.budget_hours.used, 1)}/${g.budget_hours.limit} ч`;
+  if (!d) { upd.textContent = "—"; return; }
   const s = Math.round((Date.now() - S.lastFetchOk) / 1000);
   upd.textContent = s < 4 ? "только что" : s + " с назад";
 }
@@ -302,8 +299,7 @@ function screenDash() {
       </div>
     </section>
     <section class="card">
-      <div class="card-label"><span>Суточный бюджет GPU</span><span class="r">${MODE_RU[g.mode] || g.mode}</span></div>
-      <div class="kv" style="margin:4px 0 10px">
+      <div class="budget-stats">
         <div class="kvv"><b>${fmtN(g.budget_hours.used, 1)}<em> / ${g.budget_hours.limit} ч</em></b><span>потрачено</span></div>
         <div class="kvv"><b class="${g.daily_left_h < 4 ? "delta-pos" : ""}">${fmtN(g.daily_left_h, 1)} ч</b><span>осталось</span></div>
         <div class="kvv"><b>${g.budget_tasks.used}<em> / ${g.budget_tasks.limit}</em></b><span>задач дня</span></div>
@@ -527,10 +523,10 @@ function disputeHTML(ds) {
 }
 
 function chatMsgHTML(m, i) {
-  const hl = m.kind === "bet" ? ' style="background:var(--ok-soft)"' : m.kind === "necro" ? ' style="background:var(--err-soft)"' : (m.kind === "review" ? ' style="background:var(--warn-soft)"' : "");
+  const hlc = m.kind === "bet" ? "hl-ok" : m.kind === "necro" ? "hl-err" : m.kind === "review" ? "hl-warn" : "";
   const agent = (S.data.crew.agents || []).find((a) => a.id === m.agent);
   return `
-    <div class="msg" ${hl} data-idx="${i}">
+    <div class="msg ${hlc}" data-idx="${i}">
       ${avatar(m.agent)}
       <div class="m-body">
         <div class="m-head"><span class="m-name" style="color:${AGENT_COLOR[m.agent] || "var(--tx)"}">${esc(agent ? agent.name : m.agent)}</span><span class="m-time">${timeHM(m.ts)}</span></div>
@@ -624,15 +620,20 @@ function dumbbellHTML(v) {
   if (v.forecast == null || v.actual == null) return `<div class="note">Снята до эксперимента — факт не тратил GPU-часы.</div>`;
   const lo = Math.min(v.forecast, v.actual) * 1.2, hi = Math.max(v.forecast, v.actual) * 0.85;
   const span = hi - lo || 1;
-  const fp = (v.forecast - lo) / span * 100, ap = (v.actual - lo) / span * 100;
+  const cl = (p) => Math.max(5, Math.min(95, p));
+  const fp = cl((v.forecast - lo) / span * 100), ap = cl((v.actual - lo) / span * 100);
   return `
     <div class="dumbbell">
       <span class="d-track"></span>
       <span class="d-line" style="left:${Math.min(fp, ap)}%;width:${Math.abs(ap - fp)}%"></span>
-      <span class="d-pt fore" style="left:calc(${fp}% - 6px)"></span><span class="d-lbl" style="left:${fp}%;transform:translateX(-50%)">обещали ${fmtPct(v.forecast, 0)}</span>
-      <span class="d-pt act" style="left:calc(${ap}% - 6px)"></span><span class="d-lbl" style="left:${ap}%;transform:translateX(-50%)">получили ${fmtPct(v.actual, 0)}</span>
+      <span class="d-pt fore" style="left:calc(${fp}% - 7px)"></span>
+      <span class="d-pt act" style="left:calc(${ap}% - 7px)"></span>
     </div>
-    <div class="note">отклонение от прогноза: <b class="mono" style="color:${Math.abs(v.deviation) > 40 ? "var(--err)" : "var(--ok)"}">${fmtPct(v.deviation)}</b> · ${esc(v.unit)}</div>`;
+    <div class="d-caps">
+      <span class="c-l">● обещали ${fmtPct(v.forecast, 0)}</span>
+      <b class="c-m ${Math.abs(v.deviation) > 40 ? "delta-pos" : "delta-neg"}">${fmtPct(v.deviation, 0)}</b>
+      <span class="c-r">получили ${fmtPct(v.actual, 0)} ●</span>
+    </div>`;
 }
 
 function verdictCardHTML(v) {
