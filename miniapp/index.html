@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#0a0d13">
+<meta name="color-scheme" content="dark light">
+<title>researchagen · пульт лаборатории</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Ccircle cx='12' cy='12' r='11' fill='%230a0d13'/%3E%3Cpath d='M12 4a8 8 0 0 1 8 8' stroke='%234fc3ff' stroke-width='2.4' fill='none' stroke-linecap='round'/%3E%3Cpath d='M12 12l4.2-4.2' stroke='%237c5cff' stroke-width='2.4' stroke-linecap='round'/%3E%3Ccircle cx='12' cy='12' r='1.8' fill='%23eaf0fa'/%3E%3C/svg%3E">
+<script src="https://telegram.org/js/telegram-web-app.js" onerror="window.__tgFailed=true"></script>
+<link rel="stylesheet" href="static/app.css">
+</head>
+<body>
+<svg style="display:none" xmlns="http://www.w3.org/2000/svg">
+  <symbol id="i-gauge" viewBox="0 0 24 24"><path d="M4 15a8 8 0 0 1 16 0" /><path d="M12 15l4.2-4.2"/><circle cx="12" cy="15" r="1.5" class="f"/><path d="M5.2 18.5h13.6" opacity=".45"/></symbol>
+  <symbol id="i-flow" viewBox="0 0 24 24"><circle cx="5" cy="6" r="2.1"/><circle cx="5" cy="18" r="2.1"/><circle cx="19" cy="12" r="2.1"/><path d="M7 6.7l10 4.4M7 17.3l10-4.4"/></symbol>
+  <symbol id="i-pulse" viewBox="0 0 24 24"><path d="M3 12h3.4l2.2-6 4.2 12 2.2-6H21"/></symbol>
+  <symbol id="i-users" viewBox="0 0 24 24"><circle cx="9" cy="8.2" r="3.2"/><path d="M3.4 19.4c.9-3.1 3-4.7 5.6-4.7s4.7 1.6 5.6 4.7"/><circle cx="17" cy="9.4" r="2.5"/><path d="M16.4 14.7c2.1.3 3.7 1.8 4.3 4.4"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3l7 2.8v5.3c0 4.6-3 7.7-7 9.2-4-1.5-7-4.6-7-9.2V5.8z"/><path d="M9 12l2 2 4-4.4"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M8.2 5.4v13.2L19 12z" class="f"/></symbol>
+  <symbol id="i-pause" viewBox="0 0 24 24"><path d="M8.4 5.5v13M15.6 5.5v13"/></symbol>
+  <symbol id="i-stop" viewBox="0 0 24 24"><rect x="7.2" y="7.2" width="9.6" height="9.6" rx="1.8"/></symbol>
+  <symbol id="i-kill" viewBox="0 0 24 24"><path d="M8.4 3h7.2L21 8.4v7.2L15.6 21H8.4L3 15.6V8.4z"/><path d="M9.6 9.6l4.8 4.8M14.4 9.6l-4.8 4.8"/></symbol>
+  <symbol id="i-up" viewBox="0 0 24 24"><path d="M12 19V5.5M6.4 11L12 5.4l5.6 5.6"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.4"/><path d="M12 7.4v4.8l3.3 1.9"/></symbol>
+  <symbol id="i-chip" viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="2"/><path d="M9.5 3.2v3.6M14.5 3.2v3.6M9.5 17.2v3.6M14.5 17.2v3.6M3.2 9.5h3.6M3.2 14.5h3.6M17.2 9.5h3.6M17.2 14.5h3.6"/></symbol>
+  <symbol id="i-temp" viewBox="0 0 24 24"><path d="M12 3a2 2 0 0 1 2 2v8a4.4 4.4 0 1 1-4 0V5a2 2 0 0 1 2-2z"/><circle cx="12" cy="16.8" r="1.7" class="f"/></symbol>
+  <symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13 2.5L5 13.2h6L10 21.5l8-10.7h-6z"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 3.5L2.5 20h19z"/><path d="M12 9.5v4.4M12 17.3v.2"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M4.6 12.6l5 5L19.4 6.6"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+  <symbol id="i-filter" viewBox="0 0 24 24"><path d="M4 6.5h16M7.2 12h9.6M10.2 17.5h3.6"/></symbol>
+  <symbol id="i-share" viewBox="0 0 24 24"><path d="M12 3.5v11M7.8 7.7L12 3.5l4.2 4.2"/><path d="M5.5 12.5v6a2 2 0 0 0 2 2h9a2 2 0 0 0 2-2v-6"/></symbol>
+  <symbol id="i-chev-r" viewBox="0 0 24 24"><path d="M9.5 5.5l6.5 6.5-6.5 6.5"/></symbol>
+  <symbol id="i-chev-d" viewBox="0 0 24 24"><path d="M5.5 9.5L12 16l6.5-6.5"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.4"/><path d="M15.8 15.8l4.7 4.7"/></symbol>
+  <symbol id="i-bulb" viewBox="0 0 24 24"><path d="M9.2 18.2h5.6M10.2 21h3.6"/><path d="M12 3a6 6 0 0 1 3.9 10.6c-.8.7-1 1.5-1 2.6H9.1c0-1.1-.2-1.9-1-2.6A6 6 0 0 1 12 3z"/></symbol>
+  <symbol id="i-scale" viewBox="0 0 24 24"><path d="M12 4.5v15M8 19.5h8"/><path d="M6 8h12"/><path d="M6 8l-2.7 6.2a3 3 0 0 0 5.4 0zM18 8l-2.7 6.2a3 3 0 0 0 5.4 0z"/></symbol>
+  <symbol id="i-msg" viewBox="0 0 24 24"><path d="M4 6.4A2.4 2.4 0 0 1 6.4 4h11.2A2.4 2.4 0 0 1 20 6.4v7.2a2.4 2.4 0 0 1-2.4 2.4H9.2L4 20z"/></symbol>
+  <symbol id="i-star" viewBox="0 0 24 24"><path d="M12 3.6l2.6 5.2 5.8.9-4.2 4.1 1 5.7-5.2-2.7-5.2 2.7 1-5.7-4.2-4.1 5.8-.9z"/></symbol>
+  <symbol id="i-doc" viewBox="0 0 24 24"><path d="M7 3h7l5 5v13H7z"/><path d="M14 3v5h5M10.2 13h6M10.2 17h6"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M4 12a8 8 0 0 1 13.8-5.5l2.2 2.2"/><path d="M20 4.5v4.2h-4.2"/><path d="M20 12a8 8 0 0 1-13.8 5.5l-2.2-2.2"/><path d="M4 19.5v-4.2h4.2"/></symbol>
+  <symbol id="i-dice" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="3.4"/><circle cx="8.7" cy="8.7" r="1.15" class="f"/><circle cx="15.3" cy="8.7" r="1.15" class="f"/><circle cx="12" cy="12" r="1.15" class="f"/><circle cx="8.7" cy="15.3" r="1.15" class="f"/><circle cx="15.3" cy="15.3" r="1.15" class="f"/></symbol>
+  <symbol id="i-layers" viewBox="0 0 24 24"><path d="M12 3l9 4.8-9 4.8-9-4.8z"/><path d="M3.6 12.6L12 17l8.4-4.4M3.6 16.6L12 21l8.4-4.4"/></symbol>
+  <symbol id="i-target" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.4"/><circle cx="12" cy="12" r="4.4"/><circle cx="12" cy="12" r="1" class="f"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M6 15H5.4A2.4 2.4 0 0 1 3 12.6V5.4A2.4 2.4 0 0 1 5.4 3h7.2A2.4 2.4 0 0 1 15 5.4V6"/></symbol>
+  <symbol id="i-flame" viewBox="0 0 24 24"><path d="M12 3c1 3.2 5 5.2 5 9.8a5 5 0 0 1-10 0c0-2 .9-3.5 2-5.1.4 1 1.3 2 2.4 2C10.9 8 10.4 5.2 12 3z"/></symbol>
+  <symbol id="i-coin" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.4"/><path d="M12 7v10M14.8 9.2c-.5-.8-1.6-1.2-2.8-1.2-1.6 0-2.8.8-2.8 2s1.2 1.7 2.8 2 2.9.8 2.9 2-1.3 2-2.9 2c-1.2 0-2.3-.4-2.8-1.2"/></symbol>
+  <symbol id="i-compare" viewBox="0 0 24 24"><path d="M7 4v13M4 14l3 3 3-3M17 20V7M14 10l3-3 3 3"/></symbol>
+  <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2.6 12S6.2 5.6 12 5.6 21.4 12 21.4 12 17.8 18.4 12 18.4 2.6 12 2.6 12z"/><circle cx="12" cy="12" r="2.9"/></symbol>
+  <symbol id="i-chev-l" viewBox="0 0 24 24"><path d="M14.5 5.5L8 12l6.5 6.5"/></symbol>
+</svg>
+
+<div id="app">
+  <div id="boot">
+    <div class="boot-logo">
+      <svg viewBox="0 0 24 24" class="boot-logo-svg"><use href="#i-gauge"/></svg>
+    </div>
+    <div class="boot-name">researchagen</div>
+    <div class="boot-sub">подключение к контуру…</div>
+    <div class="boot-sk">
+      <div class="sk" style="height:96px"></div>
+      <div class="sk" style="height:140px"></div>
+      <div class="sk" style="height:64px"></div>
+    </div>
+  </div>
+
+  <header id="topbar" hidden>
+    <div class="tb-left">
+      <span class="live-dot" id="tb-dot"></span>
+      <div>
+        <div id="tb-title">Пульт</div>
+        <div id="tb-sub">контур живой · тик 2 мин назад</div>
+      </div>
+    </div>
+    <div class="tb-right" id="tb-actions"></div>
+  </header>
+
+  <main id="viewport">
+    <section class="screen" id="s-dash"><div class="scroll" id="sc-dash"></div></section>
+    <section class="screen" id="s-pipe"><div class="scroll" id="sc-pipe"></div></section>
+    <section class="screen" id="s-tele"><div class="scroll" id="sc-tele"></div></section>
+    <section class="screen" id="s-crew"><div class="scroll" id="sc-crew"></div></section>
+    <section class="screen" id="s-verd"><div class="scroll" id="sc-verd"></div></section>
+  </main>
+
+  <nav id="tabbar" hidden>
+    <button class="tab" data-tab="dash"><svg><use href="#i-gauge"/></svg><span>Пульт</span></button>
+    <button class="tab" data-tab="pipe"><svg><use href="#i-flow"/></svg><span>Конвейер</span></button>
+    <button class="fab" id="fab" aria-label="Новая идея"><span class="fab-c"><svg><use href="#i-plus"/></svg></span></button>
+    <button class="tab" data-tab="tele"><svg><use href="#i-pulse"/></svg><span>Телеметрия</span></button>
+    <button class="tab" data-tab="crew"><svg><use href="#i-users"/></svg><span>Экипаж</span></button>
+    <button class="tab" data-tab="verd"><svg><use href="#i-shield"/></svg><span>Итоги</span></button>
+  </nav>
+</div>
+
+<div id="sheet-root"></div>
+<div id="toast-root"></div>
+
+<script src="static/charts.js"></script>
+<script src="static/data.js"></script>
+<script src="static/core.js"></script>
+<script src="static/screens-a.js"></script>
+<script src="static/screens-b.js"></script>
+<script src="static/screens-c.js"></script>
+<script src="static/app.js"></script>
+</body>
+</html>
