@@ -23,7 +23,7 @@ import queue as q
 
 REQUIRED_SECTIONS = ("signal_chain", "mechanism", "why_missed", "minimal_test",
                      "pass_fail", "scale_path", "impact", "falsification",
-                     "kill_checks", "forecast")
+                     "kill_checks", "forecast", "base_rate", "industry_usecase")
 
 KILL_CHECKS = (
     "Простое объяснение: lr / scheduler / init / batch / регуляризация / метрика не объясняют эффект",
@@ -79,8 +79,20 @@ pass_fail:
   pass_if: ""
   fail_if: ""
 
-# --- 6. Прогноз эффекта в % (фиксируется ДО запуска — основа калибровки).
+# --- 6. Прогноз: коридор + вероятность воспроизведения (фиксируется ДО запуска).
 forecast: {forecast}
+forecast_low: {forecast_low}     # пессимистичная граница коридора
+forecast_high: {forecast_high}   # оптимистичная граница коридора
+p_repro: {p_repro}               # вероятность, что эффект воспроизведётся (0..1)
+
+# --- 6b. Base rate: доля похожих случаев в базе/литературе, где эффект был.
+base_rate: {base_rate}
+
+# --- 6c. Индустриальный сценарий: что изменит и у кого (конкретный use-case).
+industry_usecase: |
+  # что меняет: ...
+  # у кого: ...
+  # как измерят экономию: ...
 
 # --- 7. Путь к масштабу.
 scale_path: |
@@ -120,6 +132,9 @@ def write_card(hid: str, title: str, **kw) -> str:
     body = TEMPLATE.format(
         hid=hid, title=title.replace('"', "'"), created=core.iso(),
         source=kw.get("source", "dr"), forecast=kw.get("forecast", "null"),
+        forecast_low=kw.get("forecast_low", "null"),
+        forecast_high=kw.get("forecast_high", "null"),
+        p_repro=kw.get("p_repro", "null"), base_rate=kw.get("base_rate", "null"),
         standard=kw.get("standard", 0.4), money=kw.get("money", 0.4),
         signals=kw.get("signals", 0), early=kw.get("early_pct", 10.0),
         hours=kw.get("est_hours", 4.0), decidability=kw.get("decidability", 0.5),
@@ -147,10 +162,17 @@ def fields_from_args(argv: list[str]) -> dict:
         "decidability": ("decidability", float),
         "est_hours": ("hours", float),
         "forecast": ("forecast", float),
+        "forecast_low": ("forecast-low", float),
+        "forecast_high": ("forecast-high", float),
+        "p_repro": ("p-repro", float),
+        "base_rate": ("base-rate", float),
+        "demand_signals": ("demand", int),
     }
     fields: dict = {
         "title": core.arg(argv, "title"),
         "source": core.arg(argv, "source", "dr"),
+        "buyer": core.arg(argv, "buyer"),
+        "industry_usecase": core.arg(argv, "usecase"),
     }
     for key, (cli_name, cast) in numeric.items():
         raw = core.arg(argv, cli_name)
@@ -174,10 +196,23 @@ def create(conn, title: str, fields: dict) -> dict:
     """Create a queued hypothesis and its card from an inbox lead."""
     values = dict(fields)
     values.pop("title", None)
+    # #8: автоштраф прогноза при слабой evidence — сигналов < 3.
+    # Система не верит смелым цифрам на тонком основании: прогноз срезается
+    # на 20% (честнее, чем молча завышать ожидания). Возвращается в поле
+    # penalty_note для показа человеку при постановке.
+    penalty_note = ""
+    if int(values.get("signals") or 0) < 3 and values.get("forecast") not in (None, ""):
+        original = float(values["forecast"])
+        values["forecast"] = round(original * 0.8, 2)
+        penalty_note = (f"Автоштраф evidence: сигналов {values['signals']} < 3 — "
+                        f"прогноз скорректирован {original:g}% → {values['forecast']:g}%.")
     row = q.add(conn, title, **values)
     path = write_card(row["id"], title, **values)
     q.update_fields(conn, row["id"], card_path=path)
-    return dict(conn.execute("SELECT * FROM hypotheses WHERE id=?", (row["id"],)).fetchone())
+    out = dict(conn.execute("SELECT * FROM hypotheses WHERE id=?",
+                            (row["id"],)).fetchone())
+    out["penalty_note"] = penalty_note
+    return out
 
 
 def _section_filled(text: str, name: str) -> bool:
@@ -256,11 +291,13 @@ def main(argv: list[str]) -> int:
         title = argv[2]
         kw = fields_from_args(argv)
         kw.pop("title", None)      # title идёт позиционно; в kw его быть не должно
-        row = q.add(conn, title, **kw)
-        path = write_card(row["id"], title, **kw)
-        q.update_fields(conn, row["id"], card_path=path)
+
+        row = create(conn, title, kw)      # create сам ставит автоштраф #8
+        path = row["card_path"]
+        penalty_note = row.get("penalty_note", "")
         config = core.load_config()
         ppi = q.ppi(dict(row), config)
+        bets = crew.place_bets(conn, row["id"], row["p_repro"])
         crew.safe_emit("customer_lead" if kw.get("source") == "human" else "hypo_new",
                        conn=conn, ctx={"hid": row["id"],
                                        "forecast": "—" if row["forecast"] is None
@@ -268,7 +305,16 @@ def main(argv: list[str]) -> int:
                                        "ppi": f"{ppi:.2f}",
                                        "hours": f"{float(row['est_hours']):g}",
                                        "signals": kw.get("signals", 0),
+                                       "bets_line": crew._bets_line(conn, row["id"]),
                                        "title": title})
+        if bets:
+            penalty_note += f"\nСтавки: {len(bets)} агентов зафиксировали прогноз до вердикта."
+        # #4: два прогноза — эффект и вероятность: ожидаемая величина сразу видна
+        if row["p_repro"] is not None and row["forecast"] is not None:
+            ev = float(row["p_repro"]) * float(row["forecast"])
+            penalty_note += (f"\np_repro×эффект = {float(row['p_repro']):.2f} × "
+                             f"{float(row['forecast']):g}% = {ev:.1f}% ожидаемо.")
+        penalty_note = penalty_note.lstrip("\n")
         # Якорь калибровки: агент видит свой систематический сдвиг ДО прогноза
         cal_row = conn.execute(
             "SELECT COUNT(*) n, AVG(deviation) bias FROM verdicts "
@@ -283,7 +329,7 @@ def main(argv: list[str]) -> int:
         core.emit({"id": row["id"], "card": path}, as_json,
                   f"Создана {row['id']}: {os.path.relpath(path, core.ROOT)}\n"
                   f"Заполни секции и прогони kill-stage: python tools/hypo.py check {row['id']}"
-                  + anchor)
+                  + anchor + ("\n" + penalty_note if penalty_note else ""))
         return 0
 
     if cmd == "check":

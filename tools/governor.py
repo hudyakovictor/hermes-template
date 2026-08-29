@@ -456,6 +456,8 @@ def set_mode(conn, new_mode: str, config: dict | None = None) -> dict:
         core.set_setting(conn, "governor.cron_control_blocked", False)
     core.log_event(conn, "governor.mode", None, mode=new_mode,
                    pause_requested=requested, cron=cron)
+    # смена режима — событие экипажа: пауза research заметна в чате
+    crew.safe_emit("mode_change", conn=conn, ctx={"mode": new_mode})
     active = _active_research_rows(conn)
     return {
         "ok": bool(cron.get("ok")),

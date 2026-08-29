@@ -229,7 +229,7 @@ researchagen:
     # Топик «💬 aichat»: его thread_id в .env (TELEGRAM_AICHAT_THREAD_ID).
     # Нет топика — переписка пишется только в базу, контур не страдает.
     thread_env: TELEGRAM_AICHAT_THREAD_ID
-    max_messages_per_day: 30                   # жёсткий бюджет сообщений в сутки
+    max_messages_per_day: 100                  # жёсткий бюджет сообщений в сутки
     max_lines_per_event: 5                     # реплик на одну сцену
     dispute_probability: 0.35                  # шанс спора-«проверки на прочность»
     nudge_probability: 0.20                    # шанс фразы-нуджа (приоры 95%/90%)

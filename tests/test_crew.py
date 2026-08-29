@@ -87,9 +87,25 @@ class TestFormatting(CrewBase):
             self.assertLessEqual(len(line["text"]), 140)   # короткие реплики чата
 
     def test_scene_has_a_question_in_dialogue(self):
-        # рабочая сцена — это обсуждение: в диалоге обязателен вопрос
-        res = self.emit("queue_empty", {"min": 3}, force=True)
-        self.assertTrue(any("?" in l["text"] for l in res["lines"]))
+        # рабочая сцена — это обсуждение: в полном рендере есть вопрос
+        rng = random.Random(7)
+        lines = crew.render_scene("queue_empty", {"min": 3}, rng, CREW_CONFIG, limit=5)
+        self.assertTrue(any("?" in l["text"] for l in lines))
+
+    def test_adaptive_length_one_reply_is_valid(self):
+        # v5: сцена может быть и одним ответом по делу — без длинных диалогов
+        quiet = {"researchagen": {"crew": dict(CREW_CONFIG["researchagen"]["crew"],
+                                                dispute_probability=0.0,
+                                                joke_probability=0.0)}}
+        lengths = set()
+        core.set_setting(self.conn, "crew.last.agi_day", core.iso())  # без agi-вставки
+        for seed in range(24):
+            res = crew.emit("hypo_new", {"hid": "H-009", "forecast": 9, "signals": 4,
+                                         "hours": 3}, conn=self.conn,
+                            config=quiet, rng=random.Random(seed), force=True)
+            lengths.add(len(res["lines"]))
+        self.assertIn(1, lengths)          # бывает один ответ по делу
+        self.assertTrue(max(lengths) <= 5)  # и без длинных диалогов
 
 
 class TestScenes(CrewBase):
@@ -99,7 +115,7 @@ class TestScenes(CrewBase):
                                              "hours": "0.4", "seeds": "0/3"},
                         force=True)
         self.assertTrue(res["ok"])
-        self.assertGreaterEqual(len(res["lines"]), 3)
+        self.assertGreaterEqual(len(res["lines"]), 1)  # v5: длина адаптивная
 
     def test_unknown_event_is_a_noop(self):
         res = self.emit("martian_sunrise", force=True)

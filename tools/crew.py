@@ -77,7 +77,7 @@ CREATE TABLE IF NOT EXISTS crew_findings (
 
 DEFAULTS = {
     "enabled": True,
-    "max_messages_per_day": 30,
+    "max_messages_per_day": 100,
     "max_lines_per_event": 5,
     "dispute_probability": 0.35,
     "nudge_probability": 0.20,
@@ -192,6 +192,9 @@ SCENES: dict[str, list[tuple[str, str, list[str]]]] = {
         ("shef", "work", [
             "приоритет {ppi} — сразу в верх очереди. сверим факт с прогнозом {forecast}.",
             "принято: прогноз {forecast}, приоритет {ppi}. такое давно не всплывало.",
+        ]),
+        ("krot", "work", [
+            "{bets_line}",
         ]),
         ("hronik", "work", [
             "если доживёт до L2 — патент на метод. сначала L0, потом мечты.",
@@ -313,6 +316,7 @@ SCENES: dict[str, list[tuple[str, str, list[str]]]] = {
     "verdict_confirmed": [
         ("morg", "work", [
             "{hid}: подтверждено. факт {actual} при прогнозе {forecast}, отклонение {dev}. редко скажу: красиво.",
+            "{bets_result}",
         ]),
         ("gayka", "work", [
             "{seeds} seeds, воспроизводится. работает 😂 наконец-то в нашу сторону.",
@@ -331,6 +335,7 @@ SCENES: dict[str, list[tuple[str, str, list[str]]]] = {
         ("morg", "work", [
             "{hid}: прогноз {forecast}, факт {actual}. отклонение {dev} 😂",
             "{hid}: обещали {forecast}, получили {actual}. ну всё как обычно.",
+            "{bets_result}",
         ]),
         ("krot", "work", [
             "фиксируем отрицательную прибыль.",
@@ -552,6 +557,17 @@ SCENES: dict[str, list[tuple[str, str, list[str]]]] = {
             "это я починил. можно две галочки?",
         ]),
     ],
+    "demand_block": [
+        ("shef", "work", [
+            "{hid}: L2 без спрос-чека не едет. три внешних признака спроса — или в research.",
+        ]),
+        ("hronik", "work", [
+            "соберу признаки: обсуждения у покупателей, тикеты, закупки similar.",
+        ]),
+        ("krot", "work", [
+            "спорно, но по делу: пусть сначала покажем спрос, потом жгём часы.",
+        ]),
+    ],
     "commercial_dead_end": [
         ("shef", "work", [
             "{hid}: подтверждено, но продать нельзя. это ошибка отбора, а не победа.",
@@ -700,6 +716,16 @@ DISPUTES: list[dict] = [
             ("skif", "двоечники. у меня uptime лучше ваших прогнозов."),
         ],
         "arbiter": "хватит. почините свои баги и доложите. это тоже работа.",
+    },
+    {   # предложение идей: что делать со спорной гипотезой
+        "id": "idea_pitch", "kind": "work", "needs": {"hid"},
+        "lines": [
+            ("gayka", "а если замерить до/после на тех же seeds? разница снимет спор."),
+            ("krot", "идея: прогнать на второй архитектуре сразу. если живёт там — вопрос закрыт."),
+            ("hronik", "предлагаю зафиксировать коридор пошире и не спорить о точке."),
+            ("morg", "или убить. это тоже идея."),
+        ],
+        "arbiter": "принято: {hid} получает уточнённый план, спор зафиксирован.",
     },
     {   # о заказчике — без пометок, с двойным дном
         "id": "customer_sanity", "kind": "customer", "needs": set(),
@@ -1007,11 +1033,12 @@ def safe_review(conn: sqlite3.Connection | None = None,
 # --------------------------------------------------------------------------- рендер
 
 def render_scene(event: str, ctx: dict, rng: random.Random,
-                 config: dict | None = None) -> list[dict]:
+                 config: dict | None = None, limit: int | None = None) -> list[dict]:
     blocks = SCENES.get(event)
     if not blocks:
         return []
-    limit = int(cfg("max_lines_per_event", config))
+    if limit is None:
+        limit = int(cfg("max_lines_per_event", config))
     lines: list[dict] = []
     for agent, kind, variants in blocks[:limit]:
         template = rng.choice(variants)
@@ -1210,7 +1237,15 @@ def emit(event: str, ctx: dict | None = None, conn: sqlite3.Connection | None = 
     ctx.setdefault("agi_txt", plural(agi, "день", "дня", "дней"))
     ctx.setdefault("n", _total_lines(conn) + 1)
 
-    lines = render_scene(event, ctx, rng, config)
+    # Спорность гипотезы решает громкость обсуждения: обычно 1-4 реплики
+    # («один ответ по делу» — тоже норма), спорная — до 5 и чаще со спором.
+    controversy = controversy_of(conn, ctx.get("hid"))
+    base_limit = int(cfg("max_lines_per_event", config))
+    limit = rng.choice([1, 2, 2, 3, 3, 4] + ([base_limit] if rng.random() < 0.2 else []))
+    if controversy >= 2:
+        limit = min(base_limit, limit + 1 + (1 if controversy >= 5 else 0))
+
+    lines = render_scene(event, ctx, rng, config, limit=limit)
 
     # AGI-день: раз в сутки и только если реплики про «мессию» влезают в пул
     if event != "agi_day" and _agi_day_due(conn):
@@ -1220,17 +1255,28 @@ def emit(event: str, ctx: dict | None = None, conn: sqlite3.Connection | None = 
             lines += agi_lines
             core.set_setting(conn, "crew.last.agi_day", core.iso())
 
-    # спор («проверка на прочность» чужой работы); спор о заказчике — только
-    # при свободном бюджете пула, арбитраж Boss всегда проходит (kind=work)
-    if event in DISPUTE_EVENTS and rng.random() < float(cfg("dispute_probability", config)):
+    # спор («проверка на прочность» чужой работы): чем спорнее гипотеза, тем
+    # вероятнее новый спор — обсуждение само разгоняется, но в рамках 1-5 реплик;
+    # спор о заказчике — только при свободном бюджете пула (арбитраж — work)
+    dispute_p = min(0.85, float(cfg("dispute_probability", config)) + 0.08 * controversy)
+    if event in DISPUTE_EVENTS and rng.random() < dispute_p:
         dispute_lines = render_dispute(ctx, rng)
+        # «1-5 реплик, редко больше»: если спор не влезает, он заменяет хвост
+        # сцены, а не удлиняет диалог; обрубанный спор хуже отсутствия спора
         if dispute_lines:
+            room = base_limit + 2 - len(dispute_lines)
+            if len(lines) > room:
+                lines = lines[:max(1, room)]
+        room = base_limit + 2 - len(lines)
+        if dispute_lines and len(dispute_lines) <= room:
             side_n = sum(1 for l in dispute_lines if l.get("kind") == "customer")
             already = sum(1 for l in lines if l.get("kind") == "customer")
             if side_n == 0 or _side_budget(conn, config, "customer",
                                            len(lines) + len(dispute_lines),
                                            extra_side=already) >= side_n:
                 lines += dispute_lines
+                if ctx.get("hid"):
+                    bump_controversy(conn, str(ctx["hid"]))
 
     # «умная фраза» (приоры 95/90, веса уточняются статистикой)
     if rng.random() < float(cfg("nudge_probability", config)):
@@ -1274,6 +1320,7 @@ def emit(event: str, ctx: dict | None = None, conn: sqlite3.Connection | None = 
         if _side_budget(conn, config, kind, len(lines)) < len(scene_side):
             return result(False, reason="пул вне бюджета доли — подождём рабочих реплик")
 
+    lines = [l for l in lines if str(l.get("text", "")).strip()]
     if not lines:
         return result(False, reason=f"пустая сцена для события {event!r}")
 
@@ -1344,6 +1391,129 @@ def safe_emit(event: str, ctx: dict | None = None, conn: sqlite3.Connection | No
             pass
 
 
+# --------------------------------------------------------------------------- ставки агентов (#7)
+
+def place_bets(conn: sqlite3.Connection, hid: str, p_confirmed: float | None = None,
+               rng: random.Random | None = None) -> list[dict]:
+    """Ставки ДО вердикта: 2-4 агента фиксируют confirmed/rejected.
+
+    Детерминированы зерном hid — воспроизводимы. Вероятность ставки «за»
+    берётся из p_repro гипотезы (если задана), иначе 0.5. Оцениваются при
+    вердикте (resolve_bets); счёт агентов — в crew stats и калибровке.
+    """
+    init_db(conn)
+    existing = conn.execute(
+        "SELECT agent, bet FROM agent_bets WHERE hypo_id=? AND resolved=0",
+        (hid,)).fetchall()
+    if existing:   # ставки уже стоят — повторно не ставим
+        return [{"agent": r["agent"], "bet": r["bet"]} for r in existing]
+    rng = rng or random.Random(f"{hid}-bets")
+    p = 0.5 if p_confirmed is None else min(0.95, max(0.05, float(p_confirmed)))
+    names = list(AGENTS)
+    rng.shuffle(names)
+    bettors = names[:rng.randint(2, 4)]
+    bets = []
+    for agent in bettors:
+        bet = "confirmed" if rng.random() < p else "rejected"
+        conn.execute(
+            "INSERT INTO agent_bets (agent, hypo_id, bet, made_at) VALUES (?,?,?,?)",
+            (agent, hid, bet, core.iso()))
+        bets.append({"agent": agent, "bet": bet})
+    conn.commit()
+    core.log_event(conn, "crew.bets_placed", hid, bets=bets)
+    return bets
+
+
+def resolve_bets(conn: sqlite3.Connection, hid: str, kind: str) -> dict:
+    """Закрыть ставки фактом: confirmed/partial выигрывают «за»,
+    rejected/killed — «против». Возвращает сводку для сцены чата."""
+    init_db(conn)
+    outcome = "confirmed" if kind in ("confirmed", "partial") else "rejected"
+    rows = conn.execute(
+        "SELECT bet_id, agent, bet FROM agent_bets WHERE hypo_id=? AND resolved=0",
+        (hid,)).fetchall()
+    won, lost = [], []
+    for r in rows:
+        is_won = int(r["bet"] == outcome)
+        conn.execute(
+            "UPDATE agent_bets SET resolved=1, won=?, resolved_at=? WHERE bet_id=?",
+            (is_won, core.iso(), r["bet_id"]))
+        (won if is_won else lost).append(AGENTS.get(r["agent"], {}).get("name", r["agent"]))
+    conn.commit()
+    return {"outcome": outcome, "won": won, "lost": lost, "n": len(rows)}
+
+
+def bet_scores(conn: sqlite3.Connection) -> list[dict]:
+    """Счёт агентов по ставкам: hit-rate и Brier-подобный скор (p=0.75)."""
+    init_db(conn)
+    rows = conn.execute(
+        "SELECT agent, COUNT(*) n, COALESCE(SUM(won),0) w FROM agent_bets "
+        "WHERE resolved=1 GROUP BY agent ORDER BY w * 1.0 / n DESC").fetchall()
+    out = []
+    for r in rows:
+        n, w = int(r["n"]), int(r["w"])
+        p = 0.75
+        brier = round((w / n) * (1 - p) ** 2 + (1 - w / n) * p ** 2, 3)
+        out.append({"agent": r["agent"], "name": AGENTS.get(r["agent"], {}).get("name"),
+                    "bets": n, "won": w, "hit_rate": round(w / n, 2), "brier": brier})
+    return out
+
+
+def _bets_line(conn: sqlite3.Connection, hid: str) -> str:
+    """Строка «ставки: X за, Y против» для сцены hypo_new."""
+    rows = conn.execute(
+        "SELECT agent, bet FROM agent_bets WHERE hypo_id=? AND resolved=0",
+        (hid,)).fetchall()
+    if not rows:
+        return ""
+    za = [AGENTS.get(r["agent"], {}).get("name") for r in rows if r["bet"] == "confirmed"]
+    protiv = [AGENTS.get(r["agent"], {}).get("name") for r in rows if r["bet"] == "rejected"]
+    parts = []
+    if za:
+        parts.append("за: " + ", ".join(za))
+    if protiv:
+        parts.append("против: " + ", ".join(protiv))
+    return "ставки — " + "; ".join(parts) + "."
+
+
+def _bets_result_line(conn: sqlite3.Connection, summary: dict) -> str:
+    """Строка «ставку выиграли X; проиграл Y» для сцены вердикта."""
+    if not summary.get("n"):
+        return ""
+    parts = []
+    if summary["won"]:
+        parts.append("выиграли: " + ", ".join(summary["won"]))
+    if summary["lost"]:
+        parts.append("проиграли: " + ", ".join(summary["lost"]))
+    return "по ставкам — " + "; ".join(parts) + "."
+
+
+# --------------------------------------------------------------------------- спорность
+
+def bump_controversy(conn: sqlite3.Connection, hid: str | None) -> int:
+    """Спор вызвал гипотезу — её спорность +1. Чем спорнее, тем громче
+    дальнейшие обсуждения (см. emit: длина сцены и шанс спора)."""
+    if not hid:
+        return 0
+    init_db(conn)
+    conn.execute("UPDATE hypotheses SET controversy=controversy+1, updated_at=? "
+                 "WHERE id=?", (core.iso(), hid))
+    conn.commit()
+    row = conn.execute("SELECT controversy FROM hypotheses WHERE id=?", (hid,)).fetchone()
+    return int(row["controversy"]) if row else 0
+
+
+def controversy_of(conn: sqlite3.Connection, hid: str | None) -> int:
+    if not hid:
+        return 0
+    try:
+        row = conn.execute("SELECT controversy FROM hypotheses WHERE id=?",
+                           (hid,)).fetchone()
+        return int(row["controversy"]) if row else 0
+    except sqlite3.Error:
+        return 0
+
+
 # --------------------------------------------------------------------------- чтение
 
 def replay(conn: sqlite3.Connection, limit: int = 30) -> list[dict]:
@@ -1397,6 +1567,7 @@ def stats(conn: sqlite3.Connection, config: dict | None = None) -> dict:
         "quiet_hours": cfg("quiet_hours", config),
         "agents": {a["name"]: a["zone"] for a in AGENTS.values()},
         "by_agent": {r["agent"]: r["c"] for r in by_agent},
+        "bet_scores": bet_scores(conn),
         "nudges": nudges,
         "cost": {"gpu_hours": 0.0, "tokens": 0},
     }
@@ -1447,6 +1618,49 @@ def main(argv: list[str]) -> int:
                 f"сегодня {data['today_sent']}/{data['max_per_day']} отправок. "
                 f"AGI через {data['agi_days_left']} дн. Цена: 0 GPU-ч, 0 токенов.")
         core.emit(data, as_json, text)
+        return 0
+
+    if cmd == "bet":
+        hid = argv[2] if len(argv) > 2 else core.fail("нужен id гипотезы")
+        agent = core.arg(argv, "agent") or core.fail("нужен --agent <ник из AGENTS>")
+        outcome = core.arg(argv, "outcome") or core.fail("нужен --outcome confirmed|rejected")
+        if agent not in AGENTS:
+            core.fail(f"неизвестный агент {agent!r}; доступные: {', '.join(AGENTS)}")
+        if outcome not in ("confirmed", "rejected"):
+            core.fail("--outcome должен быть confirmed | rejected")
+        row = conn.execute(
+            "SELECT bet_id FROM agent_bets WHERE hypo_id=? AND agent=? AND resolved=0"
+            " ORDER BY bet_id LIMIT 1", (hid, agent)).fetchone()
+        # одна открытая ставка на агента: дубли (в т.ч. исторические) схлопываются
+        if row:
+            conn.execute("DELETE FROM agent_bets WHERE hypo_id=? AND agent=?"
+                         " AND resolved=0 AND bet_id<>?",
+                         (hid, agent, row["bet_id"]))
+            conn.execute("UPDATE agent_bets SET bet=?, made_at=? WHERE bet_id=?",
+                         (outcome, core.iso(), row["bet_id"]))
+        else:
+            conn.execute("INSERT INTO agent_bets (agent, hypo_id, bet, made_at)"
+                         " VALUES (?,?,?,?)", (agent, hid, outcome, core.iso()))
+        conn.commit()
+        core.emit({"ok": True, "agent": agent, "hid": hid, "bet": outcome}, as_json,
+                  f"{AGENTS[agent]['name']} ставит {outcome} на {hid} — до вердикта")
+        return 0
+
+    if cmd == "bets":
+        rows = bet_scores(conn)
+        text = core.table([[r["name"], r["bets"], r["won"], r["hit_rate"], r["brier"]]
+                           for r in rows], ["агент", "ставок", "выиграно", "hit", "brier"]) \
+            if rows else ""
+        open_bets = conn.execute(
+            "SELECT b.hypo_id, b.agent, b.bet FROM agent_bets b"
+            " WHERE b.resolved=0 ORDER BY b.hypo_id, b.agent").fetchall()
+        if open_bets:
+            text += ("\nОткрытые (до вердикта): "
+                     + "; ".join(f"{r['hypo_id']} — {AGENTS.get(r['agent'], {}).get('name', r['agent'])}"
+                                 f": {r['bet']}" for r in open_bets))
+        text = text.strip() or "Ставок ещё нет."
+        core.emit({"resolved": rows, "open": [dict(r) for r in open_bets]},
+                  as_json, text)
         return 0
 
     if cmd == "mute":

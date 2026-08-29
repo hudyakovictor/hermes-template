@@ -210,12 +210,34 @@ CREATE TABLE IF NOT EXISTS hypotheses (
     decidability REAL NOT NULL DEFAULT 0.5,   -- однозначность PASS/FAIL
     est_hours    REAL NOT NULL DEFAULT 4.0,
     forecast     REAL,                        -- прогноз эффекта, % (фиксируется ДО запуска)
+    forecast_low REAL,                        -- коридор: нижняя граница
+    forecast_high REAL,                       -- коридор: верхняя граница
+    p_repro       REAL,                       -- вероятность воспроизведения 0..1
+    base_rate     REAL,                       -- base rate: доля похожих случаев с эффектом
+    buyer         TEXT,                       -- кому продадим (при money >= 0.5)
+    industry_usecase TEXT,                    -- что изменит в индустрии и у кого
+    demand_signals INTEGER NOT NULL DEFAULT 0,-- внешние признаки спроса (нужно 3 для L2)
+    controversy  INTEGER NOT NULL DEFAULT 0,  -- спорность: сколько споров вызвал в чате
     kill_checks_passed INTEGER NOT NULL DEFAULT 0,
     source       TEXT NOT NULL DEFAULT 'dr',  -- dr | human | dr-deep
     card_path    TEXT,
-    created_at   TEXT NOT NULL,
-    updated_at   TEXT NOT NULL,
+    created_at    TEXT NOT NULL,
+    updated_at    TEXT NOT NULL,
     notes        TEXT
+);
+
+-- Ставки агентов ДО вердикта (#7): кто верит в гипотезу, а кто нет.
+-- Оценивается по факту: bet=confirmed выигрывает при confirmed/partial,
+-- bet=rejected — при rejected/killed. Brier-подобный счёт в calibration().
+CREATE TABLE IF NOT EXISTS agent_bets (
+    bet_id     INTEGER PRIMARY KEY AUTOINCREMENT,
+    agent      TEXT NOT NULL,
+    hypo_id    TEXT NOT NULL,
+    bet        TEXT NOT NULL,             -- confirmed | rejected
+    made_at    TEXT NOT NULL,
+    resolved   INTEGER NOT NULL DEFAULT 0,
+    won        INTEGER,
+    resolved_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS runs (
@@ -241,6 +263,9 @@ CREATE TABLE IF NOT EXISTS verdicts (
     forecast     REAL,
     actual       REAL,
     deviation    REAL,            -- % отклонения факта от прогноза
+    in_corridor  INTEGER,         -- #2: факт внутри коридора [low, high] (0/1)
+    forecast_low REAL,
+    forecast_high REAL,
     seeds_pass   INTEGER NOT NULL DEFAULT 0,
     seeds_total  INTEGER NOT NULL DEFAULT 0,
     sigma        REAL,
@@ -399,6 +424,18 @@ CREATE INDEX IF NOT EXISTS idx_bd_hypotheses_region ON bd_hypotheses(namespace, 
 """
 
 
+# Мягкая миграция: старые базы получают новые колонки hypotheses без пересоздания.
+_HYPO_MIGRATIONS = (
+    ("forecast_low", "REAL"), ("forecast_high", "REAL"), ("p_repro", "REAL"),
+    ("base_rate", "REAL"), ("buyer", "TEXT"), ("industry_usecase", "TEXT"),
+    ("demand_signals", "INTEGER NOT NULL DEFAULT 0"),
+    ("controversy", "INTEGER NOT NULL DEFAULT 0"),
+)
+_VERDICT_MIGRATIONS = (
+    ("in_corridor", "INTEGER"), ("forecast_low", "REAL"), ("forecast_high", "REAL"),
+)
+
+
 def db(path: str = DB_PATH) -> sqlite3.Connection:
     ensure_dirs()
     conn = sqlite3.connect(path, timeout=30)
@@ -406,6 +443,17 @@ def db(path: str = DB_PATH) -> sqlite3.Connection:
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
     conn.executescript(SCHEMA)
+    existing = {r["name"] for r in conn.execute(
+        "PRAGMA table_info(hypotheses)").fetchall()}
+    for column, decl in _HYPO_MIGRATIONS:
+        if column not in existing:
+            conn.execute(f"ALTER TABLE hypotheses ADD COLUMN {column} {decl}")
+    existing_v = {r["name"] for r in conn.execute(
+        "PRAGMA table_info(verdicts)").fetchall()}
+    for column, decl in _VERDICT_MIGRATIONS:
+        if column not in existing_v:
+            conn.execute(f"ALTER TABLE verdicts ADD COLUMN {column} {decl}")
+    conn.commit()
     return conn
 
 

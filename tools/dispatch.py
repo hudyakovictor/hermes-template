@@ -92,6 +92,17 @@ def launch(conn, hid: str, level: str = "L0", force: bool = False,
     if not gate["ok"] and not force:
         return {"ok": False, "reason": "гейт не пройден", "problems": gate["problems"]}
 
+    # #21: спрос-чек — дорогие уровни (L2+) только при внешних признаках спроса.
+    # Эффект без покупателей — красиво и бесполезно; проверяем до GPU.
+    if level in ("L2", "L3") and int(row["demand_signals"] or 0) < 3 and not force:
+        crew.safe_emit("demand_block", conn=conn, ctx={
+            "hid": hid, "demand": int(row["demand_signals"] or 0)})
+        core.log_event(conn, "dispatch.demand_block", hid,
+                       demand_signals=int(row["demand_signals"] or 0), level=level)
+        return {"ok": False,
+                "reason": f"спрос-чек L2+: внешних признаков спроса "
+                          f"{int(row['demand_signals'] or 0)}/3 — собери и повтори"}
+
     est = float(row["est_hours"] or 0)
     limit_hours = float(core.cfg("researchagen.limits.approval_gpu_hours", 12, config))
     if est > limit_hours and not approved(conn, hid) and not force:

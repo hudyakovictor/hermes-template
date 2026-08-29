@@ -93,12 +93,21 @@ def record(conn, hid: str, kind: str, actual=None, seeds_pass: int = 0,
         core.fail("в поле --changes запрещённые формулировки: "
                   + ", ".join(banned) + ". Нужно конкретное действие или число.")
     dev = deviation(row["forecast"], actual)
+    # #2: коридор. PASS = попадание факта в [low, high]; хранится и в тексте,
+    # и в базе — точечный прогноз больше не единственная мера честности.
+    in_corridor = None
+    if row["forecast_low"] is not None and row["forecast_high"] is not None \
+            and actual not in (None, ""):
+        in_corridor = int(float(row["forecast_low"]) <= float(actual)
+                          <= float(row["forecast_high"]))
     conn.execute(
         "INSERT INTO verdicts (hypo_id, level, kind, forecast, actual, deviation,"
-        " seeds_pass, seeds_total, sigma, gpu_hours, what_changes, created_at)"
-        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+        " in_corridor, forecast_low, forecast_high, seeds_pass, seeds_total, sigma,"
+        " gpu_hours, what_changes, created_at)"
+        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (hid, row["level"], kind, row["forecast"],
          None if actual in (None, "") else float(actual), dev,
+         in_corridor, row["forecast_low"], row["forecast_high"],
          int(seeds_pass), int(seeds_total),
          None if sigma in (None, "") else float(sigma),
          float(gpu_hours), changes, core.iso()),
@@ -115,11 +124,17 @@ def record(conn, hid: str, kind: str, actual=None, seeds_pass: int = 0,
                    deviation=dev, gpu_hours=gpu_hours, governor=governor_result)
     text = render(hid, row["title"], kind, row["forecast"], actual, dev,
                   int(seeds_pass), int(seeds_total), sigma, float(gpu_hours), changes)
+    if in_corridor is not None:
+        hit_word = "попадание" if in_corridor else "мимо коридора"
+        text += (f"\nКоридор [{row['forecast_low']:g}…{row['forecast_high']:g}]: "
+                 f"{hit_word}.")
     path = f"{core.REPORTS_DIR}/verdict-{hid}.md"
     with open(path, "a", encoding="utf-8") as fh:
         fh.write(text + "\n\n---\n\n")
+    bets_summary = crew.resolve_bets(conn, hid, kind)
     crew.safe_emit(f"verdict_{kind}", conn=conn, ctx={
         "hid": hid,
+        "bets_result": crew._bets_result_line(conn, bets_summary),
         "forecast": "—" if row["forecast"] is None else f"{row['forecast']:g}%",
         "actual": "—" if actual in (None, "") else f"{float(actual):g}%",
         "dev": None if dev is None else f"{dev:+.0f}%",
@@ -144,8 +159,8 @@ def record(conn, hid: str, kind: str, actual=None, seeds_pass: int = 0,
 
 def calibration(conn) -> dict:
     rows = conn.execute(
-        "SELECT kind, forecast, actual, deviation, gpu_hours FROM verdicts "
-        "WHERE deviation IS NOT NULL"
+        "SELECT kind, forecast, actual, deviation, gpu_hours, in_corridor "
+        "FROM verdicts WHERE deviation IS NOT NULL"
     ).fetchall()
     counts = {k: 0 for k in KIND_STATUS}
     for r in conn.execute("SELECT kind, COUNT(*) n FROM verdicts GROUP BY kind").fetchall():
@@ -154,8 +169,16 @@ def calibration(conn) -> dict:
         devs = [abs(float(r["deviation"])) for r in rows]
         bias = sum(float(r["deviation"]) for r in rows) / len(rows)
         mae = sum(devs) / len(devs)
+        # #6: асимметричный штраф — «обещал больше, чем вышло» (dev < 0)
+        # считается вдвойне: оптимизм должен быть дороже скромности
+        weighted = [abs(float(r["deviation"])) * (2.0 if float(r["deviation"]) < 0 else 1.0)
+                    for r in rows]
+        asym = sum(weighted) / len(weighted)
+        corridor_rows = [r for r in rows if r["in_corridor"] is not None] \
+            if "in_corridor" in rows[0].keys() else []
+        corridor_hits = sum(int(r["in_corridor"]) for r in corridor_rows)
     else:
-        bias, mae = None, None
+        bias, mae, asym, corridor_rows, corridor_hits = None, None, None, [], 0
     total = sum(counts.values())
     spent = conn.execute("SELECT COALESCE(SUM(gpu_hours),0) FROM verdicts").fetchone()[0]
     hit = counts["confirmed"] + counts["partial"]
@@ -168,6 +191,9 @@ def calibration(conn) -> dict:
         "mean_abs_deviation_pct": None if mae is None else round(mae, 1),
         "bias_pct": None if bias is None else round(bias, 1),
         "hit_rate": None if total == 0 else round(hit / total, 3),
+        "asym_penalty_pct": None if asym is None else round(asym, 1),
+        "corridor_hits": (f"{corridor_hits}/{len(corridor_rows)}"
+                          if corridor_rows else None),
         "commercial_dead_ends": dead_ends,
         "gpu_hours_spent": round(float(spent), 2),
         "gpu_hours_per_confirmed": None if counts["confirmed"] == 0

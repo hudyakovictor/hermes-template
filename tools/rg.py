@@ -72,6 +72,8 @@ def main(argv: list[str]) -> int:
         "aichat": lambda: crew.main([argv[0], "replay"] + argv[2:]),
         "chat": lambda: crew.main([argv[0], "replay"] + argv[2:]),
         "gossip": lambda: crew.main([argv[0], "replay"] + argv[2:]),
+        "bet": lambda: crew.main([argv[0], "bet"] + argv[2:]),
+        "bets": lambda: crew.main([argv[0], "bet"] + argv[2:]),
         "crew": lambda: crew.main([argv[0]] + argv[2:]),
     }
     if cmd in ("help", "-h", "--help"):
