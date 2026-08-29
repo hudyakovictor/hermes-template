@@ -26,6 +26,7 @@
 
 from __future__ import annotations
 
+import shutil
 import difflib
 import importlib
 import sys
@@ -44,6 +45,69 @@ import selfcheck
 import verdict as v
 
 USAGE = __doc__
+
+
+
+
+def boot_report(rest: list[str]) -> int:
+    """Старт контура одним вызовом: факты, самопроверка, что запустить.
+
+    Вызывается человеком (/start, /boot) и на первом сообщении сессии.
+    Детерминирован и бесплатен для модели: только чтение состояния и
+    подсказки. Автономию обеспечивают cron-задания и gateway, не этот отчёт.
+    """
+    as_json = core.wants_json(["rg.py", "boot"] + rest)
+    conn = core.db()
+    config = core.load_config()
+    st = report.status(conn, config)
+    doctor = selfcheck.run_all()
+    cron_ok = shutil.which("hermes") is not None
+    paused = st.get("paused")
+    data = {
+        "ok": (not paused) and bool(doctor.get("ok")),
+        "paused": bool(paused),
+        "doctor": {"ok": doctor.get("ok"), "fails": doctor.get("fails"),
+                   "warns": doctor.get("warns")},
+        "autonomy": {
+            "cron_cli": cron_ok,
+            "cron_note": ("hermes найден: диспетчер (*/2 мин) и research-loop (*/25 мин) "
+                          "должны стоять в `hermes cron list`; если нет — перезапусти "
+                          "install.sh (блок cron)" if cron_ok else
+                          "hermes не в PATH: cron не зарегистрирован, контур не автономен. "
+                          "Запусти установщик или добавь задания из cron/ вручную"),
+            "gateway_note": "управление в Telegram живёт только при запущенном "
+                            "`researchagen gateway start`",
+        },
+        "status": st,
+        "first_actions": (
+            ["/resume — вернуть автозапуск"] if paused else []
+        ) + [
+            "python tools/rg.py tick — один тик диспетчера прямо сейчас",
+            "python tools/rg.py status — полная картина",
+        ],
+    }
+    if as_json:
+        core.emit(data, True)
+        return 0
+    # человек читает текст: короткий стартовый отчёт, а не одна строка
+    q = st.get("planned") or []
+    run = st.get("running") or []
+    ver = (st.get("calibration") or {}).get("verdicts")
+    doc = ("чисто" if doctor.get("ok")
+           else "провалов %s, предупреждений %s — детали: python tools/rg.py doctor"
+           % (doctor.get("fails"), doctor.get("warns")))
+    print("boot: %s" % ("пауза — /resume вернёт автозапуск" if paused else "контур активен"))
+    print("  доктор: %s" % doc)
+    print("  очередь: %d гипотез в плане, на GPU: %d%s"
+          % (len(q), len(run), (", вердиктов закрыто: %s" % ver) if ver else ""))
+    gpu = (st.get("gpu") or {})
+    if not gpu.get("available"):
+        print("  GPU: недоступен (нужно %s ГБ) — пульт, очередь и экипаж работают"
+              % gpu.get("required_gb"))
+    print("  автономия: %s" % data["autonomy"]["cron_note"])
+    for a in data["first_actions"]:
+        print("  → %s" % a)
+    return 0
 
 
 def main(argv: list[str]) -> int:
@@ -100,6 +164,7 @@ def main(argv: list[str]) -> int:
             [argv[0]] + argv[2:]),
         "board": lambda: importlib.import_module("board").main(
             [argv[0], "show"] + argv[2:]),
+        "boot": lambda: boot_report(argv[2:]),
     }
     if cmd in ("help", "-h", "--help"):
         print(USAGE)

@@ -102,6 +102,12 @@ auxiliary:
 # ---------------------------------------------------------------- быстрые команды
 # exec-алиасы: работают и в CLI, и в Telegram, без хода модели (0 токенов).
 quick_commands:
+  boot:
+    type: exec
+    command: python tools/rg.py boot
+  start:
+    type: exec
+    command: python tools/rg.py boot
   gpu:
     type: exec
     command: python tools/gpu.py show

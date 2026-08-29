@@ -43,6 +43,7 @@ const ICO = {
   info: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 11v5" stroke-linecap="round"/><circle cx="12" cy="7.6" r="1" fill="currentColor" stroke="none"/></svg>',
 };
 const BIN_COLOR = { P1: "ok", P2: "acc", P3: "warn", P4: "err" };
+const SRC_RU = { dr: "экипаж", telegram: "человек", human: "человек", miniapp: "человек" };
 
 /* --------------------------------------------------------------- утилиты */
 const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) =>
@@ -119,16 +120,15 @@ function renderKey() {
   const c = d.current;
   return JSON.stringify([
     S.route, S.sub, S.metric, S.logY, [...S.compare].sort(), S.verdictFilter, S.offline,
-    d.mode, d.gov.mode, d.gov.autostart,
-    d.gov.budget_hours.used.toFixed(1), d.gov.budget_tasks.used,
-    Math.round(d.gpu.util / 5), Math.round(d.gpu.temp / 2), d.gpu.used_gb.toFixed(1),
-    c && c.hid, c && Math.round((c.progress || 0) * 200), c && c.eta_min,
-    c && c.loss_now && c.loss_now.toFixed(3), c && c.status,
-    d.approvals.length, d.crew.chat.length, d.crew.chat.length ? d.crew.chat.at(-1).id : 0,
+    d.mode, d.gov.autostart,
+    (d.gov.budget_hours.used || 0).toFixed(1),
+    d.gpu.available, Math.round((d.gpu.util || 0) / 5), Math.round((d.gpu.temp || 0) / 2),
+    (d.gpu.used_gb || 0).toFixed(1),
+    c && c.hid, c && c.elapsed_min && Math.round(c.elapsed_min),
+    d.approvals.length, d.crew.chat.length, d.crew.chat.length ? d.crew.chat.at(-1).ts : 0,
     d.queue.map((h) => [h.id, h.status, h.ppi, h.checks_pass, h.level].join(":")).join("|"),
     d.verdicts.length, d.crew.remarks.map((x) => x.status).join(),
-    JSON.stringify(d.user_votes || {}),
-    (d.crew.chat.filter((m) => m.dispute).map((m) => m.dispute.options.map((o) => o.votes).join()) || []).join(),
+    (d.crew.leaders || []).map((l) => [l.agent, l.bets].join(":")).join(),
   ]);
 }
 
@@ -195,32 +195,19 @@ function screenDash() {
   const d = S.data;
   if (!d) return skeletonHTML();
   const g = d.gov, gpu = d.gpu, cur = d.current, st = d.stats;
-  const util = gpu.util || 0;
-  const free = Math.max(0, gpu.total_gb - gpu.used_gb);
-  const ringCol = util > 5 ? "var(--acc)" : "var(--tx3)";
-  const C = 2 * Math.PI * 44;
 
   const hero = cur ? `
     <section class="card task-hero">
       <div class="th-top">
-        <span class="chip ${cur.status === "paused" ? "warn" : "acc"}">${cur.status === "paused" ? "пауза" : "считается"}</span>
+        <span class="chip acc">на GPU</span>
         <span class="chip mono">${esc(cur.hid)}</span>
-        <span class="chip violet">${cur.level}</span>
-        <span class="chip dim">сид ${cur.seed}/${cur.seeds_total}</span>
+        <span class="chip violet">${esc(cur.level || "")}</span>
+        ${cur.dry_run ? `<span class="chip warn">dry-run</span>` : ""}
       </div>
-      <h3>${esc(cur.title)}</h3>
-      <div class="th-sub">шаг <b class="mono num">${(cur.steps / 1000).toFixed(1)}k</b> из ${(cur.steps_total / 1000).toFixed(0)}k · прошло ${fmtMin(cur.elapsed_min)} · осталось ≈ ${fmtMin(cur.eta_min)}</div>
-      ${progressHTML(cur.progress, cur.status === "paused")}
-      <div class="progress-row"><span>прогон</span><span>${Math.round(cur.progress * 100)}%</span></div>
-      <div class="kv">
-        <div class="kvv"><b class="mono">${cur.loss_now != null ? cur.loss_now.toFixed(4) : "—"}</b><span>loss сейчас</span></div>
-        <div class="kvv"><b class="mono">${cur.base_now != null ? cur.base_now.toFixed(4) : "—"}</b><span>базовая</span></div>
-        <div class="kvv"><b class="${cur.loss_now && cur.base_now ? (cur.loss_now < cur.base_now ? "delta-neg" : "delta-pos") : ""}">${cur.loss_now && cur.base_now ? fmtPct((cur.loss_now - cur.base_now) / cur.base_now * 100) : "—"}</b><span>к базе</span></div>
-      </div>
+      <h3>${esc((d.queue.find((h) => h.id === cur.hid) || {}).title || cur.hid)}</h3>
+      <div class="th-sub">идёт ${fmtMin(cur.elapsed_min)} · статус пишет диспетчер (тик каждые 2 мин)</div>
       <div class="split">
-        ${cur.status === "paused"
-          ? `<button class="btn primary block" data-act="resume">${ICO.play} Продолжить</button>`
-          : `<button class="btn block" data-act="pause">${ICO.pause} Пауза · чекпойнт</button>`}
+        <button class="btn block" data-act="pause">${ICO.pause} Пауза · чекпойнт</button>
         <button class="btn danger hold-btn block" data-act="kill" data-hid="${esc(cur.hid)}" data-hold>
           <span class="hold-fill"></span>
           <span class="btn-inner">${ICO.stop} Снять <small style="font-weight:600;opacity:.75">удержать 1,2 с</small></span>
@@ -228,26 +215,27 @@ function screenDash() {
       </div>
     </section>` : `
     <section class="card">
-      <div class="card-label">GPU свободен</div>
-      <div class="empty"><div class="e-ico">🛰</div>Прогонов нет. ${g.autostart ? "Диспетчер ждёт очередь (каждые 2 мин)." : "Автозапуск остановлен человеком."}</div>
-      ${g.autostart ? "" : `<button class="btn primary block" data-act="resume">▸ Вернуть автозапуск</button>`}
+      <div class="card-label"><span>Прогонов нет</span><span class="r">${g.autostart ? "автозапуск вкл" : "пауза"}</span></div>
+      <div class="empty"><div class="e-ico">🛰</div>GPU свободен. ${g.autostart ? "Диспетчер проверяет очередь каждые 2 минуты." : "Автозапуск остановлен (/resume)."}</div>
+      ${g.autostart ? `<button class="btn block" data-act="pause">${ICO.pause} Пауза</button>`
+                    : `<button class="btn primary block" data-act="resume">${ICO.play} Вернуть автозапуск</button>`}
     </section>`;
 
   const approvals = d.approvals.length ? `
     <section class="card approve-card">
-      <div class="card-label"><span>Ждёт твоего решения</span><span class="r">${d.approvals.length}</span></div>
+      <div class="card-label"><span>Ждёт решения человека</span><span class="r">${d.approvals.length}</span></div>
       ${d.approvals.map((a) => `
         <div style="margin-bottom:10px">
           <div style="display:flex;gap:7px;align-items:center;flex-wrap:wrap">
             <b class="mono" style="font-size:14.5px">${esc(a.hid)}</b>
-            <span class="chip warn">${a.level} · ${fmtN(a.hours, 1)} GPU-ч</span>
+            <span class="chip warn">${esc(a.level || "L2")} · ${fmtN(a.hours, 1)} GPU-ч</span>
             <span class="chip dim">PPI ${fmtN(a.ppi)}</span>
           </div>
           <div style="font-size:15px;margin:6px 0 8px">${esc(a.title)}</div>
-          <div class="note">Порог подтверждения: ${g.approval_hours} GPU-ч. ${esc(a.note || "")}</div>
+          <div class="note">${esc(a.note || "")}</div>
           <div class="split" style="margin-top:9px">
-            <button class="btn ok sm block" data-act="approve" data-id="${esc(a.id)}" data-ok="1">${ICO.check} Одобрить</button>
-            <button class="btn danger sm block ${S.pendingReject === a.id ? "" : "ghost"}" data-act="approve" data-id="${esc(a.id)}" data-ok="0">${S.pendingReject === a.id ? "Точно отклонить?" : "Отклонить"}</button>
+            <button class="btn ok sm block" data-act="approve" data-hid="${esc(a.hid)}" data-ok="1">${ICO.check} Одобрить</button>
+            <button class="btn danger sm block ${S.pendingReject === a.hid ? "" : "ghost"}" data-act="approve" data-hid="${esc(a.hid)}" data-ok="0">${S.pendingReject === a.hid ? "Точно отклонить?" : "Отклонить"}</button>
           </div>
         </div>`).join("")}
     </section>` : "";
@@ -263,11 +251,13 @@ function screenDash() {
       <span class="rl-chev">›</span>
     </section>` : "";
 
+  const wr = st.win_rate == null ? null : Math.round(st.win_rate * (st.win_rate <= 1 ? 100 : 1));
   return `
     ${hero}
     ${approvals}
     <section class="card">
-      <div class="card-label"><span>${esc(gpu.name)}</span><span class="r">автозапуск: ${g.autostart ? "вкл" : "выкл"}</span></div>
+      <div class="card-label"><span>${gpu.available ? esc(gpu.name) : "GPU"}</span><span class="r">${g.autostart ? "автозапуск вкл" : "автозапуск выкл"}</span></div>
+      ${gpu.available ? `
       <div class="gpu-grid">
         <div class="ring">
           <svg width="104" height="104" viewBox="0 0 104 104">
@@ -277,41 +267,38 @@ function screenDash() {
               </linearGradient>
             </defs>
             <circle cx="52" cy="52" r="44" fill="none" stroke="var(--card3)" stroke-width="9"/>
-            <circle cx="52" cy="52" r="44" fill="none" stroke="${util > 5 ? "url(#ringg)" : "var(--tx3)"}" stroke-width="9" stroke-linecap="round"
-              stroke-dasharray="${(C * util / 100).toFixed(1)} ${C.toFixed(1)}"/>
+            <circle cx="52" cy="52" r="44" fill="none" stroke="${gpu.util > 5 ? "url(#ringg)" : "var(--tx3)"}" stroke-width="9" stroke-linecap="round"
+              stroke-dasharray="${(2 * Math.PI * 44 * gpu.util / 100).toFixed(1)} ${(2 * Math.PI * 44).toFixed(1)}"/>
           </svg>
-          <span class="val"><div><b>${util}%</b><i>util</i></div></span>
+          <span class="val"><div><b>${gpu.util}%</b><i>util</i></div></span>
         </div>
         <div>
           <div class="meter">
-            <div class="meter-head"><span>VRAM</span><b>${fmtN(gpu.used_gb, 1)} / ${fmtN(gpu.total_gb, 1)} ГБ · своб. ${fmtN(free, 1)}</b></div>
-            <div class="bar">
-              <span class="fill" style="width:${(gpu.used_gb / gpu.total_gb * 100).toFixed(1)}%;background:${free < gpu.critical_free ? "var(--err)" : free < gpu.low_free ? "var(--warn)" : "linear-gradient(90deg,var(--acc),var(--violet))"}"></span>
-              <span class="tick warn" style="left:${(1 - gpu.low_free / gpu.total_gb) * 100}%" title="мало"></span>
-              <span class="tick crit" style="left:${(1 - gpu.critical_free / gpu.total_gb) * 100}%" title="крит"></span>
-            </div>
+            <div class="meter-head"><span>VRAM</span><b>${fmtN(gpu.used_gb, 1)} / ${fmtN(gpu.total_gb, 1)} ГБ</b></div>
+            <div class="bar"><span class="fill" style="width:${gpu.total_gb ? (gpu.used_gb / gpu.total_gb * 100).toFixed(1) : 0}%;background:linear-gradient(90deg,var(--acc),var(--violet))"></span></div>
           </div>
           <div class="meter">
             <div class="meter-head"><span>Температура</span><b>${gpu.temp}°C</b></div>
             <div class="temp-scale"><span class="temp-needle" style="left:calc(${Math.min(100, gpu.temp / 95 * 100).toFixed(1)}% - 2px)"></span></div>
           </div>
         </div>
-      </div>
+      </div>` : `
+      <div class="empty"><div class="e-ico">🔌</div>GPU недоступен на этом узле${g.platform ? ` (${esc(g.platform)}${g.debug ? ", debug" : ""})` : ""}. Пульт работает: очередь, вердикты и экипаж — живые.</div>`}
     </section>
     <section class="card">
       <div class="budget-stats">
-        <div class="kvv"><b>${fmtN(g.budget_hours.used, 1)}<em> / ${g.budget_hours.limit} ч</em></b><span>потрачено</span></div>
-        <div class="kvv"><b class="${g.daily_left_h < 4 ? "delta-pos" : ""}">${fmtN(g.daily_left_h, 1)} ч</b><span>осталось</span></div>
-        <div class="kvv"><b>${g.budget_tasks.used}<em> / ${g.budget_tasks.limit}</em></b><span>задач дня</span></div>
+        <div class="kvv"><b>${fmtN(g.budget_hours.used, 1)}<em> / ${fmtN(g.budget_hours.limit, 0)} ч</em></b><span>потрачено</span></div>
+        <div class="kvv"><b class="${(g.budget_hours.limit - g.budget_hours.used) < 4 ? "delta-pos" : ""}">${fmtN(g.budget_hours.limit - g.budget_hours.used, 1)} ч</b><span>осталось</span></div>
+        ${g.has_tasks_counter ? `<div class="kvv"><b>${g.budget_tasks.used}<em> / ${g.budget_tasks.limit}</em></b><span>запусков дня</span></div>` : `<div class="kvv"><b>${st.verdicts_total}</b><span>вердиктов всего</span></div>`}
       </div>
-      <div class="bar" style="height:10px"><span class="fill" style="width:${(g.budget_hours.used / g.budget_hours.limit * 100).toFixed(1)}%;background:${g.budget_hours.used / g.budget_hours.limit > .8 ? "var(--warn)" : "linear-gradient(90deg,var(--acc),var(--violet))"}"></span></div>
-      <div class="note" style="margin-top:8px">Вытеснение при PPI ×${g.preempt_ratio} у очереди — прогон прерывается с чекпойнтом.</div>
+      <div class="bar" style="height:10px"><span class="fill" style="width:${(g.budget_hours.used / g.budget_hours.limit * 100).toFixed(1)}%;background:linear-gradient(90deg,var(--acc),var(--violet))"></span></div>
+      <div class="note" style="margin-top:8px">Дорогой прогон (&gt; ${g.approval_hours} ч) требует одобрения человека. Запуски решает диспетчер по PPI.</div>
     </section>
     <section class="kpi-grid">
       <div class="kpi"><b>${st.calibration == null ? "—" : st.calibration + "%"}<em>точность</em></b><span>калибровка прогнозов</span></div>
-      <div class="kpi"><b>${st.win_rate}%</b><span>подтверждено вердиктов</span></div>
-      <div class="kpi"><b>−${st.gpu_saved_h}<em>GPU-ч</em></b><span>сэкономили ранние снятия</span></div>
-      <div class="kpi"><b>${st.open_bets}</b><span>открытых ставок экипажа</span></div>
+      <div class="kpi"><b>${wr == null ? "—" : wr + "%"}</b><span>доля подтверждений</span></div>
+      <div class="kpi"><b>${st.queue_len}</b><span>живых гипотез в очереди</span></div>
+      <div class="kpi"><b>${st.open_remarks}</b><span>открытых замечаний ревью</span></div>
     </section>
     ${next}
     <section class="split">
@@ -326,28 +313,29 @@ function screenDash() {
 function hypCardHTML(h) {
   const statusChip = h.status === "running" ? `<span class="chip acc">на GPU</span>`
     : h.status === "blocked" ? `<span class="chip err">блок</span>`
-    : h.status === "paused_checkpoint" ? `<span class="chip warn">пауза</span>` : "";
-  const betIcons = (h.bets.up.length || h.bets.down.length)
-    ? `<span class="chip dim">${h.bets.up.length ? "▲" + h.bets.up.length : ""}${h.bets.up.length && h.bets.down.length ? " " : ""}${h.bets.down.length ? "▼" + h.bets.down.length : ""} ставки</span>` : "";
-  const mine = h.source === "human" ? `<span class="chip violet">от человека</span>` : "";
-  const ppiTop = S.data ? Math.max(...S.data.queue.map((x) => x.ppi || 0)) : 1;
+    : h.status === "paused_checkpoint" ? `<span class="chip warn">пауза</span>`
+    : h.status === "killed" ? `<span class="chip err">снята</span>` : "";
+  const srcChip = SRC_RU[h.source] ? `<span class="chip ${h.source === "dr" ? "dim" : "violet"}">${SRC_RU[h.source]}</span>` : "";
+  const ppiTop = S.data ? Math.max(...S.data.queue.map((x) => x.ppi || 0), 0.001) : 1;
   const ppiCol = h.ppi >= ppiTop * 0.66 ? "var(--ok)" : h.ppi >= ppiTop * 0.33 ? "var(--warn)" : "var(--tx3)";
+  const needsApproval = h.status === "queued" && h.est_hours > (S.data.gov.approval_hours || 12) && !h.approved;
   return `
   <article class="card hyp-card" data-act="open-hyp" data-hid="${esc(h.id)}">
     <div class="hyp-row1">
-      <b class="hid" style="color:${h.status === "running" ? "var(--acc)" : h.status === "blocked" ? "var(--err)" : "var(--tx2)"}">${esc(h.id)}</b>
-      <span class="chip ${BIN_COLOR[h.bin] || "dim"}">${h.bin}</span>
+      <b class="hid" style="color:${h.status === "running" ? "var(--acc)" : h.status === "blocked" || h.status === "killed" ? "var(--err)" : "var(--tx2)"}">${esc(h.id)}</b>
+      <span class="chip ${BIN_COLOR[h.bin] || "dim"}">${esc(h.bin)}</span>
       <span class="chip dim">${fmtN(h.est_hours, 1)} ч</span>
       ${statusChip}
+      ${needsApproval ? `<span class="chip warn">ждёт /approve</span>` : ""}
       <span class="ppi-badge"><b style="color:${ppiCol}">${fmtN(h.ppi)}</b><span>PPI оч/ч</span></span>
     </div>
     <div class="hyp-title">${esc(h.title)}</div>
     <div class="hyp-meta">
       <span class="chip dim">PI ${fmtN(h.pi)}</span>
       <span class="chip dim">сигналы ${h.signals}</span>
-      <span class="chip ${h.checks_pass >= 8 ? "ok" : h.checks_pass >= 5 ? "warn" : "err"}">kill ${h.checks_pass}/8</span>
+      <span class="chip ${h.checks_pass >= 8 ? "ok" : h.checks_pass >= 1 ? "warn" : "err"}">kill ${h.checks_pass}/8</span>
       ${ladderHTML(h.level)}
-      ${mine} ${betIcons}
+      ${srcChip}
     </div>
     ${h.note ? `<div class="note" style="margin-top:8px">${esc(h.note)}</div>` : ""}
   </article>`;
@@ -380,161 +368,102 @@ function screenPipe() {
 function screenLive() {
   const d = S.data;
   if (!d) return skeletonHTML();
-  const run = d.runs.find((r) => r.status === "running") || d.runs[0];
-  const hist = d.history || [];
-  const cmpColors = { cur: "#5b8cff", h0: "#8f7bff", h1: "#f5a623", h2: "#38c8e8" };
-  const cmpLabels = { cur: "H-041 L1 · сейчас", h0: "R-116 L0", h1: "R-112 L0", h2: "R-108 L1" };
-
-  const hero = run ? `
+  const cur = d.current;
+  const vs = d.verdicts.filter((v) => v.forecast != null && v.actual != null);
+  const hero = cur ? `
     <section class="card">
       <div class="run-hero">
         <span class="live-dot"></span>
-        <b class="mono">${esc(run.hid)}</b>
-        <span class="chip violet">${run.level}</span>
-        <span class="chip dim">сид ${run.seed}/${run.seeds_total}</span>
-        <span class="chip dim">шаг ${(run.steps_done / 1000).toFixed(1)}k</span>
-        <span class="chip ${run.eta_min < 10 ? "ok" : "dim"}">ETA ${fmtMin(run.eta_min)}</span>
+        <b class="mono">${esc(cur.hid)}</b>
+        <span class="chip violet">${esc(cur.level || "")}</span>
+        ${cur.dry_run ? `<span class="chip warn">dry-run</span>` : ""}
+        <span class="chip dim">идёт ${fmtMin(cur.elapsed_min)}</span>
       </div>
-      <div style="margin-top:9px">${progressHTML(run.progress, run.status === "paused")}</div>
-      <div class="progress-row"><span>${run.status === "paused" ? "пауза" : "учится"}</span><span>${Math.round(run.progress * 100)}%</span></div>
-    </section>` : `<div class="empty"><div class="e-ico">📉</div>Нет активного прогона</div>`;
-
-  const metrics = [
-    ["loss", "Loss"], ["rank", "Ранг весов"], ["stab", "Sign-stability"],
-  ];
-  const legend = S.metric === "loss"
-    ? `<span class="li"><span class="sw" style="background:#5b8cff"></span>прогон</span><span class="li"><span class="sw" style="background:#5d6c82"></span>базовая</span>`
-    : S.metric === "rank"
-      ? `<span class="li"><span class="sw" style="background:#8f7bff"></span>effective rank</span>`
-      : `<span class="li"><span class="sw" style="background:#5b8cff"></span>сид 1</span><span class="li"><span class="sw" style="background:#35d07f"></span>сид 2</span><span class="li"><span class="sw" style="background:#f5a623"></span>сид 3</span>`;
-
-  const cmpRows = hist.map((h, i) => {
-    const key = "h" + i;
-    const on = S.compare.has(key);
-    return `<button class="fchip ${on ? "on" : ""}" data-act="cmp" data-k="${key}">${esc(h.id)} · ${esc(h.hid)} ${h.level}</button>`;
-  }).join("");
-
-  const cmpTable = `
-    <table class="cmp-table">
-      <tr><th>Прогон</th><th>Финал</th><th>Δ к базе</th><th>Время</th></tr>
-      ${S.compare.has("cur") && run ? `<tr><td>${esc(run.hid)} ${run.level} <span class="chip ok" style="font-size:9px;padding:1px 6px">live</span></td><td class="mono">${(run.series.loss_run.at(-1) || [0, "—"])[1].toFixed?.(3) ?? "—"}</td><td>…</td><td>${fmtMin(run.elapsed_min)}</td></tr>` : ""}
-      ${hist.map((h, i) => S.compare.has("h" + i) ? `<tr><td>${esc(h.hid)} ${h.level}</td><td class="mono">${h.final.toFixed(3)}</td><td><b class="${h.delta < 0 ? "delta-neg" : "delta-pos"}">${fmtPct(h.delta)}</b></td><td>${h.minutes} мин</td></tr>` : "").join("")}
-    </table>`;
+      <div class="note" style="margin-top:9px">Живые кривые обучения появятся, когда прогон пишет метрики; статус прогона — факты из experiments.</div>
+    </section>` : `
+    <section class="card"><div class="empty"><div class="e-ico">📉</div>Активного прогона нет. Диспетчер проверяет очередь каждые 2 мин.</div></section>`;
 
   return `
-    <div class="screen-title"><h1>Ход экспериментов</h1><span class="sub">live-телеметрия</span></div>
+    <div class="screen-title"><h1>Прогнозы против факта</h1><span class="sub">${vs.length} вердиктов</span></div>
     ${hero}
-    <div class="seg">
-      ${metrics.map(([k, l]) => `<button class="${S.metric === k ? "on" : ""}" data-act="metric" data-v="${k}">${l}</button>`).join("")}
-      ${S.metric === "loss" ? `<button class="${S.logY ? "on" : ""}" data-act="logy" data-v="1">log</button>` : ""}
-    </div>
     <section class="card chart-card">
-      <div class="legend">${legend}</div>
-      <div class="chart-wrap"><canvas id="ch-main"></canvas></div>
+      <div class="legend">
+        <span class="li"><span class="sw" style="background:#9889ff"></span>обещали</span>
+        <span class="li"><span class="sw" style="background:#6b97ff"></span>получили</span>
+      </div>
+      <div class="chart-wrap"><canvas id="ch-calib"></canvas></div>
       <div class="readout" id="ch-readout">коснись графика — точные значения</div>
     </section>
     <section class="card">
-      <div class="card-label"><span>Сравнение прогонов</span><span class="r">loss, % хода</span></div>
-      <div class="chips" style="margin-bottom:10px">
-        <button class="fchip ${S.compare.has("cur") ? "on" : ""}" data-act="cmp" data-k="cur">${run ? esc(run.hid) + " L1 (текущий)" : "текущий"}</button>
-        ${cmpRows}
-      </div>
-      <div class="chart-wrap"><canvas id="ch-cmp"></canvas></div>
-      ${cmpTable}
+      <div class="card-label"><span>Вердикты по порядку</span><span class="r">отклонение от прогноза</span></div>
+      ${vs.length ? `<table class="cmp-table">
+        <tr><th>Гипотеза</th><th>Обещали</th><th>Факт</th><th>Δ</th><th>GPU-ч</th></tr>
+        ${vs.slice(0, 10).map((v) => `<tr>
+          <td><b class="mono">${esc(v.hid)}</b> <span class="chip ${v.kind === "confirmed" ? "ok" : v.kind === "partial" ? "warn" : "err"}" style="font-size:10.5px">${KIND_RU[v.kind]}</span></td>
+          <td class="mono">${fmtPct(v.forecast, 0)}</td>
+          <td class="mono">${fmtPct(v.actual, 0)}</td>
+          <td><b class="${Math.abs(v.deviation) > 40 ? "delta-pos" : "delta-neg"}">${fmtPct(v.deviation, 0)}</b></td>
+          <td class="mono">${fmtN(v.gpu_hours, 1)}</td>
+        </tr>`).join("")}
+      </table>` : `<div class="empty">Пока нет вердиктов с прогнозом и фактом — график появится после первого закрытия.</div>`}
     </section>`;
 }
 
 function drawLiveCharts() {
   const d = S.data;
   if (!d) return;
-  const run = d.runs.find((r) => r.status === "running") || d.runs[0];
-  const main = $("#ch-main");
-  if (main && run) {
-    const sers = [];
-    if (S.metric === "loss") {
-      sers.push({ id: "base", label: "базовая", color: "#5d6c82", dash: [5, 4], data: run.series.loss_base, width: 1.5 });
-      sers.push({ id: "run", label: "прогон", color: "#5b8cff", data: run.series.loss_run, fill: "rgba(91,140,255,.20)" });
-    } else if (S.metric === "rank") {
-      sers.push({ id: "rank", label: "rank", color: "#8f7bff", data: run.series.rank, fill: "rgba(143,123,255,.16)" });
-    } else {
-      ["#5b8cff", "#35d07f", "#f5a623"].forEach((c, i) =>
-        sers.push({ id: "s" + i, label: "сид " + (i + 1), color: c, data: run.series.stab[i] || [], width: 1.6 }));
-    }
-    Charts.line("ch-main", {
-      series: sers, height: 215, logY: S.metric === "loss" && S.logY,
-      hlines: S.metric === "stab" ? [{ y: 0.75, label: "порог 0.75", color: "rgba(245,166,35,.55)" }] : [],
-      fmtY: (v) => S.metric === "stab" ? v.toFixed(2) : v.toFixed(3),
-      fmtX: Charts.fmtK,
-      onScrub: (vals) => {
-        const ro = $("#ch-readout");
-        if (!ro) return;
-        if (!vals) { ro.textContent = "коснись графика — точные значения"; return; }
-        const xs = ["base", "run", "rank", "s0", "s1", "s2"].filter((k) => vals[k]);
-        const lbl = { base: "база", run: "прогон", rank: "ранг", s0: "сид 1", s1: "сид 2", s2: "сид 3" };
-        ro.innerHTML = `<b class="mono">шаг ${Charts.fmtK(xs.map((k) => vals[k].x).reduce((a, b) => Math.max(a, b), 0))}</b>` +
-          xs.map((k) => ` · ${lbl[k]} <b class="mono">${vals[k].y.toFixed(4)}</b>`).join("");
-      },
-    });
-  }
-  const cmp = $("#ch-cmp");
-  if (cmp) {
-    const sers = [];
-    if (S.compare.has("cur") && run && run.series.loss_run.length) {
-      const tot = run.series.loss_run.at(-1)[0] || 1;
-      sers.push({ id: "cur", label: "текущий", color: "#5b8cff", width: 2,
-        data: run.series.loss_run.map((p) => [p[0] / tot * 100, p[1]]) });
-    }
-    (d.history || []).forEach((h, i) => {
-      if (!S.compare.has("h" + i)) return;
-      const tot = (h.series.at(-1) || [1, 0])[0];
-      const col = ["#8f7bff", "#f5a623", "#38c8e8"][i % 3];
-      sers.push({ id: h.id, label: h.id, color: col, width: 1.6,
-        data: h.series_run.map((p) => [p[0] / tot * 100, p[1]]) });
-    });
-    Charts.line("ch-cmp", { series: sers, height: 170, fmtY: (v) => v.toFixed(2), fmtX: (v) => Math.round(v) + "%" });
-  }
+  const el = $("#ch-calib");
+  if (!el) return;
+  const vs = d.verdicts.filter((v) => v.forecast != null && v.actual != null).slice().reverse();
+  if (!vs.length) return;
+  Charts.line("ch-calib", {
+    series: [
+      { id: "fore", label: "обещали", color: "#9889ff", width: 2, dash: [6, 4],
+        data: vs.map((v, i) => [i + 1, v.forecast]) },
+      { id: "act", label: "получили", color: "#6b97ff", width: 2.2,
+        data: vs.map((v, i) => [i + 1, v.actual]) },
+    ],
+    height: 200,
+    fmtX: (x) => "#" + Math.round(x),
+    fmtY: (v) => v.toFixed(0) + "%",
+    onScrub: (vals) => {
+      const ro = $("#ch-readout");
+      if (!ro) return;
+      if (!vals || !vals.act) { ro.textContent = "коснись графика — точные значения"; return; }
+      const v = vs[Math.min(vs.length - 1, Math.max(0, Math.round(vals.act.x) - 1))];
+      ro.innerHTML = v
+        ? `<b class="mono">${esc(v.hid)}</b> · обещали <b class="mono">${fmtPct(v.forecast, 0)}</b> · получили <b class="mono">${fmtPct(v.actual, 0)}</b> · Δ <b>${fmtPct(v.deviation, 0)}</b>`
+        : "коснись графика — точные значения";
+    },
+  });
 }
 
 /* ============================================================================
    ЭКРАН: ЭКИПАЖ
    ========================================================================== */
-function disputeHTML(ds) {
-  if (!ds) return "";
-  const total = ds.options.reduce((s, o) => s + o.votes, 0) || 1;
-  const voted = ds._voted || (S.data && (S.data.user_votes || {})[ds.id]);
-  if (ds.closed || voted) {
-    return `<div class="dispute">
-      <div class="q">${esc(ds.q)}</div>
-      ${ds.options.map((o) => `
-        <div class="vrow"><span>${esc(o.label)}</span>
-          <span class="vbar"><i style="width:${Math.round(o.votes / total * 100)}%"></i></span>
-          <b class="mono num">${Math.round(o.votes / total * 100)}%</b></div>`).join("")}
-      ${voted ? `<div class="boss-line">твой голос учтён (вес ×2) · решает Boss</div>` : ""}
-      ${ds.boss ? `<div class="boss-line">Boss: ${esc(ds.boss)}</div>` : ""}
-    </div>`;
-  }
+function disputeHTML(m) {
+  if (!m || !m.dispute_id) return "";
   return `<div class="dispute">
-    <div class="q">${esc(ds.q)}</div>
-    <div class="vote-opts">
-      ${ds.options.map((o) => `<button class="vote-opt" data-act="vote" data-d="${esc(ds.id)}" data-o="${esc(o.id)}"><span>${esc(o.label)}</span><span>${o.votes}</span></button>`).join("")}
-    </div>
-    <div class="note" style="margin-top:7px">Голос человека — вес ×2. Решает арбитраж Boss.</div>
+    <div class="q">Спор в чате · закрывает арбитраж Boss числом из базы</div>
+    <div class="note">Реплики с меткой спора — часть сцены взаимного ревью. Человек наблюдает; решение принимает Boss по данным SQLite.</div>
   </div>`;
 }
 
 function chatMsgHTML(m, i) {
   const hlc = m.kind === "bet" ? "hl-ok" : m.kind === "necro" ? "hl-err" : m.kind === "review" ? "hl-warn" : "";
-  const agent = (S.data.crew.agents || []).find((a) => a.id === m.agent);
+  const name = m.name || ((S.data.crew.agents || []).find((a) => a.id === m.agent) || {}).name || m.agent;
+  const hid = m.hid || (HID_RE_CHAT.lastIndex = 0, (HID_RE_CHAT.exec(m.text) || [])[1]);
   return `
     <div class="msg ${hlc}" data-idx="${i}">
       ${avatar(m.agent)}
       <div class="m-body">
-        <div class="m-head"><span class="m-name" style="color:${AGENT_COLOR[m.agent] || "var(--tx)"}">${esc(agent ? agent.name : m.agent)}</span><span class="m-time">${timeHM(m.ts)}</span></div>
-        <div class="m-text">${esc(m.text)}${m.hid ? ` <button class="m-hid mono" data-act="open-hyp" data-hid="${esc(m.hid)}">${esc(m.hid)}</button>` : ""}</div>
-        ${disputeHTML(m.dispute)}
+        <div class="m-head"><span class="m-name" style="color:${AGENT_COLOR[m.agent] || "var(--tx)"}">${esc(name)}</span><span class="m-time">${timeHM(m.ts)}</span></div>
+        <div class="m-text">${esc(m.text)}${hid ? ` <button class="m-hid mono" data-act="open-hyp" data-hid="${esc(hid)}">${esc(hid)}</button>` : ""}${m.dispute_id ? ` <span class="chip violet" style="font-size:11px">спор</span>` : ""}</div>
+        ${m.dispute_id ? disputeHTML(m) : ""}
       </div>
     </div>`;
 }
+const HID_RE_CHAT = /\bH-\d{3,4}\b/;
 
 function screenCrew() {
   const d = S.data;
@@ -548,7 +477,9 @@ function screenCrew() {
 
   let body = "";
   if (tab === "chat") {
-    body = `<div class="chat" id="chat-list">${c.chat.map(chatMsgHTML).join("")}</div>`;
+    body = c.chat.length
+      ? `<div class="chat" id="chat-list">${c.chat.map(chatMsgHTML).join("")}</div>`
+      : `<div class="empty"><div class="e-ico">💬</div>Чат пуст: сцены генерирует код по событиям контура (запуск, вердикт, ревью).</div>`;
   } else if (tab === "review") {
     body = c.remarks.length ? `<div class="list-gap">${c.remarks.map((r) => `
       <div class="remark ${r.status === "closed" ? "closed" : ""}">
@@ -556,54 +487,53 @@ function screenCrew() {
         <div style="flex:1;min-width:0">
           <div class="r-txt">${esc(r.text)}</div>
           <div class="r-meta">
-            <span style="color:${AGENT_COLOR[r.from]}">${esc((c.agents.find((a) => a.id === r.from) || {}).name || r.from)}</span>
-            <span>→</span>
-            <span style="color:${AGENT_COLOR[r.to]}">${esc((c.agents.find((a) => a.id === r.to) || {}).name || r.to)}</span>
             ${r.hid ? `<button class="chip dim mono" data-act="open-hyp" data-hid="${esc(r.hid)}">${esc(r.hid)}</button>` : ""}
             <span class="chip ${r.status === "closed" ? "ok" : "warn"}">${r.status === "closed" ? "закрыто" : "открыто"}</span>
-            <span>${agoTxt(r.ts)}</span>
+            <span>чинит экипаж в ближайший тик</span>
           </div>
         </div>
       </div>`).join("")}</div>`
-      : `<div class="empty"><div class="e-ico">🧹</div>Замечаний нет — экипаж чист</div>`;
+      : `<div class="empty"><div class="e-ico">🧹</div>Замечаний нет — взаимное ревью чисто</div>`;
   } else {
-    const open = c.bets.filter((b) => b.status === "queued" || b.status === "running" || b.status === "blocked");
-    const total = (b) => b.up.length + b.down.length || 1;
+    const open = c.bets || [];
     body = `
-      <div class="card-label" style="margin-top:2px">Открытые ставки</div>
-      ${open.length ? open.map((b) => `
+      <div class="card-label" style="margin-top:2px">Открытые ставки · закрываются вердиктом</div>
+      ${open.length ? open.map((b) => {
+        const total = b.up.length + b.down.length || 1;
+        return `
         <div class="bet-row">
           <div style="display:flex;gap:7px;align-items:center;flex-wrap:wrap">
             <b class="mono" style="font-size:14px">${esc(b.hid)}</b>
-            <span class="chip ${b.status === "running" ? "acc" : "dim"}">${b.status === "running" ? "на GPU" : "в очереди"}</span>
+            <span class="chip ${b.status === "running" ? "acc" : "dim"}">${b.status === "running" ? "на GPU" : STATUS_RU[b.status] || b.status}</span>
           </div>
           <div style="font-size:15px;font-weight:600;margin:7px 0 3px">${esc(b.title)}</div>
-          <div class="bet-bar"><span class="b-up" style="width:${b.up.length / total(b) * 100}%"></span><span class="b-down"></span></div>
+          <div class="bet-bar"><span class="b-up" style="width:${b.up.length / total * 100}%"></span><span class="b-down"></span></div>
           <div style="display:flex;justify-content:space-between;font-size:13px;color:var(--tx2)">
-            <span style="color:var(--ok)">▲ взлетит: ${b.up.length ? esc(b.up.join(", ")) : "—"}</span>
-            <span style="color:var(--err)">не взлетит: ${b.down.length ? esc(b.down.join(", ")) : "—"}</span>
+            <span style="color:var(--ok)">▲ ${b.up.length ? esc(b.up.join(", ")) : "—"}</span>
+            <span style="color:var(--err)">▼ ${b.down.length ? esc(b.down.join(", ")) : "—"}</span>
           </div>
-        </div>`).join("") : `<div class="empty">Открытых ставок нет</div>`}
-      <div class="card-label" style="margin-top:6px">Рейтинг точности (hit-rate · Brier · серия)</div>
+        </div>`;
+      }).join("") : `<div class="empty">Открытых ставок нет</div>`}
+      <div class="card-label" style="margin-top:6px">Рейтинг точности (hit-rate · Brier)</div>
       <div class="card">
-        ${c.leaders.map((l, i) => {
+        ${c.leaders.length ? c.leaders.map((l, i) => {
           const a = c.agents.find((x) => x.id === l.agent) || {};
           return `<div class="lead-row">
             <span class="lead-rank">${i + 1}</span>
             ${avatar(l.agent, "sm")}
             <div class="lead-mid">
-              <div class="lm1"><span style="color:${AGENT_COLOR[l.agent]}">${esc(a.name || l.agent)}</span><span class="mono">${Math.round(l.rate * 100)}%</span></div>
-              <div class="rate-bar"><i style="width:${l.rate * 100}%"></i></div>
-              <div class="lm2"><span>${l.bets} ставок</span><span>Brier ${l.brier}</span><span>${l.streak > 0 ? "🔥 " + l.streak : l.streak < 0 ? "❄ " + (-l.streak) : "—"}</span></div>
+              <div class="lm1"><span style="color:${AGENT_COLOR[l.agent]}">${esc(a.name || l.agent)}</span><span class="mono">${Math.round((l.rate || 0) * 100)}%</span></div>
+              <div class="rate-bar"><i style="width:${(l.rate || 0) * 100}%"></i></div>
+              <div class="lm2"><span>${l.bets} ставок закрыто</span>${l.brier != null ? `<span>Brier ${l.brier}</span>` : ""}</div>
             </div>
           </div>`;
-        }).join("")}
+        }).join("") : `<div class="empty">Ставок ещё не закрыто: рейтинг появится после первых вердиктов</div>`}
       </div>`;
   }
 
   const openRm = c.remarks.filter((r) => r.status === "open").length;
   return `
-    <div class="screen-title"><h1>Экипаж</h1><span class="sub">7 агентов</span></div>
+    <div class="screen-title"><h1>Экипаж</h1><span class="sub">${c.agents.length} агентов · ${c.chat_total} реплик</span></div>
     ${roster}
     <div class="seg violet">
       <button class="${tab === "chat" ? "on" : ""}" data-act="crew-tab" data-v="chat">Чат</button>
@@ -648,9 +578,8 @@ function verdictCardHTML(v) {
       <div class="hyp-title" style="margin:8px 0 2px">${esc(v.title)}</div>
       ${dumbbellHTML(v)}
       <div class="hyp-meta" style="margin-top:9px">
-        <span class="chip dim">${seeds} seeds</span>
+        ${v.seeds_total > 0 ? `<span class="chip dim">${seeds} seeds</span>` : ""}
         <span class="chip dim">${fmtN(v.gpu_hours, 1)} GPU-ч</span>
-        ${v.commercial >= 0.5 ? `<span class="chip ok">коммерция ${Math.round(v.commercial * 100)}%</span>` : ""}
       </div>
     </article>`;
 }
@@ -743,63 +672,59 @@ function openHyp(hid) {
   const h = d && d.queue.find((x) => x.id === hid);
   if (!h) { toast("Гипотеза не найдена", "err"); return; }
   const cur = d.current && d.current.hid === h.id ? d.current : null;
-  const src = h.source === "human" ? "человек" : (d.crew.agents.find((a) => a.id === h.source) || {}).name || h.source;
-  const runs = [["L0", 0.1], ["L1", 2], ["L2", 13.5], ["L3", 30]];
-  const open = `
+  const src = SRC_RU[h.source] || h.source;
+  const runs = [["L0", "5 мин"], ["L1", "≈2 ч"], ["L2", "часы: порог /approve"]];
+  const needsApproval = h.status === "queued" && h.est_hours > d.gov.approval_hours && !h.approved;
+  openSheet(`
     <div>
       <div class="hyp-row1">
         <b class="hid">${esc(h.id)}</b>
-        <span class="chip ${BIN_COLOR[h.bin] || "dim"}">${h.bin}</span>
-        <span class="chip ${h.status === "running" ? "acc" : h.status === "blocked" ? "err" : h.status === "paused_checkpoint" ? "warn" : "dim"}">${STATUS_RU[h.status] || h.status}</span>
+        <span class="chip ${BIN_COLOR[h.bin] || "dim"}">${esc(h.bin)}</span>
+        <span class="chip ${h.status === "running" ? "acc" : h.status === "blocked" || h.status === "killed" ? "err" : h.status === "paused_checkpoint" ? "warn" : "dim"}">${STATUS_RU[h.status] || h.status}</span>
         <span class="ppi-badge"><b>${fmtN(h.ppi)}</b><span>PPI оч/ч</span></span>
       </div>
       <h3 style="font-size:17.5px;margin:10px 0 9px;line-height:1.35">${esc(h.title)}</h3>
       <div class="kv">
         <div class="kvv"><b>${fmtN(h.pi)}</b><span>PI</span></div>
-        <div class="kvv"><b>${fmtN(h.est_hours, 1)} ч</b><span>оценка</span></div>
+        <div class="kvv"><b>${fmtN(h.est_hours, 1)} ч</b><span>оценка GPU</span></div>
         <div class="kvv"><b>${h.signals}</b><span>сигналов</span></div>
-        <div class="kvv"><b>${h.seeds}</b><span>seeds</span></div>
         <div class="kvv"><b>${fmtN(h.age_days, 1)} дн</b><span>в очереди</span></div>
         <div class="kvv"><b style="font-size:14px">${esc(src)}</b><span>источник</span></div>
       </div>
       ${ladderHTML(h.level)}
     </div>
-    ${cur ? `<div>${progressHTML(cur.progress)}<div class="progress-row"><span>на GPU сейчас</span><span>${Math.round(cur.progress * 100)}%</span><span>ETA ${fmtMin(cur.eta_min)}</span></div></div>` : ""}
+    ${cur ? `<div class="note">На GPU сейчас: идёт ${fmtMin(cur.elapsed_min)}. Статус пишет диспетчер.</div>` : ""}
     <div>
-      <div class="card-label" style="margin-top:4px">Коридор эффекта</div>
-      ${corridorHTML(h)}
+      <div class="card-label">Коридор прогноза (зафиксирован до запуска)</div>
+      ${h.forecast != null ? corridorHTML(h) : `<div class="note">Прогноз не зафиксирован — вердикт без него невозможен.</div>`}
     </div>
     <div>
-      <div class="card-label">Kill-проверки (до GPU) · ${h.checks_pass}/8</div>
+      <div class="card-label">Kill-стадия · подтверждено ${h.checks_pass}/8</div>
       <div class="checks">
-        ${h.checks.map((c) => `
-          <div class="check ${c.s}">
-            <span class="ic">${CHECK_RU[c.s]}</span>
-            <span class="ct">${esc(S.data.checks[c.i] || "")}${c.s === "fail" && h.note ? ` <b>· ${esc(h.note)}</b>` : ""}</span>
-            ${c.s === "wait" ? `<button class="btn sm ca" data-act="run-check" data-hid="${esc(h.id)}" data-i="${c.i}">Запустить</button>` : ""}
+        ${(d.checks || []).map((c, i) => `
+          <div class="check ${i < h.checks_pass ? "pass" : "wait"}">
+            <span class="ic">${i < h.checks_pass ? "✓" : "•"}</span>
+            <span class="ct">${esc(c)}</span>
           </div>`).join("")}
       </div>
-    </div>
-    ${(h.bets.up.length || h.bets.down.length) ? `
-    <div>
-      <div class="card-label">Ставки экипажа</div>
-      <div style="display:flex;gap:16px;font-size:14px">
-        <span style="color:var(--ok)">▲ ${esc(h.bets.up.join(", ") || "—")}</span>
-        <span style="color:var(--err)">▼ ${esc(h.bets.down.join(", ") || "—")}</span>
+      <div class="split" style="margin-top:10px">
+        <button class="btn sm block" data-act="run-check" data-hid="${esc(h.id)}">Проверить гейтом</button>
+        <button class="btn sm block ghost" data-act="sheet-close">Закрыть</button>
       </div>
-      <div class="note">Закрываются вердиктом: confirmed/partial — выигрывают «за».</div>
-    </div>` : ""}
-    <div class="split">
-      <button class="btn block" data-act="boost" data-hid="${esc(h.id)}">${ICO.up} Приоритет</button>
+      <div class="qlist" id="gate-result" style="margin-top:8px"></div>
     </div>
+    ${h.status === "queued" || h.status === "blocked" ? `
     <div>
       <div class="card-label">Запустить уровень вручную</div>
       <div class="split">
-        ${runs.slice(0, 3).map(([lv, hh]) => `<button class="btn sm block ${lv === "L2" ? "ghost" : ""}" data-act="run-level" data-hid="${esc(h.id)}" data-lv="${lv}">${lv} · ${fmtN(hh, 1)}ч</button>`).join("")}
+        ${runs.map(([lv, note]) => `<button class="btn sm block ${lv === "L2" ? "ghost" : ""}" data-act="run-level" data-hid="${esc(h.id)}" data-lv="${lv}">${lv}</button>`).join("")}
       </div>
-      <div class="note" style="margin-top:7px">L2 &gt; 12 ч — на подтверждение человеку · бюджет ${fmtN(S.data.gov.budget_hours.used, 1)}/${S.data.gov.budget_hours.limit} ч</div>
-    </div>`;
-  openSheet(open);
+      <div class="note" style="margin-top:7px">${needsApproval
+        ? `Дороже ${d.gov.approval_hours} ч — сначала одобрение (кнопка на Пульте или /approve ${esc(h.id)})`
+        : `Бюджет: ${fmtN(d.gov.budget_hours.used, 1)}/${fmtN(d.gov.budget_hours.limit, 0)} ч · запуск идёт через штатный dispatch`}</div>
+    </div>` : ""}
+    ${h.note ? `<div class="note">${esc(h.note)}</div>` : ""}
+  `);
   setSheetTitle("Гипотеза");
 }
 
@@ -868,8 +793,8 @@ function openVerdict(id) {
         <div class="kvv"><b>σ ${v.sigma ?? "—"}</b><span>разброс</span></div>
         <div class="kvv"><b>${fmtN(v.gpu_hours, 1)}</b><span>GPU-ч</span></div>
       </div></div>` : ""}
-    <div><div class="card-label">Что меняется</div><div style="font-size:15px">${esc(v.changes)}</div></div>
-    <div><div class="card-label">Следующее действие</div><div style="font-size:15px">${esc(v.next)}</div></div>
+    ${v.changes ? `<div><div class="card-label">Что меняется</div><div style="font-size:15px">${esc(v.changes)}</div></div>` : ""}
+    ${v.next ? `<div><div class="card-label">Следующее действие</div><div style="font-size:15px">${esc(v.next)}</div></div>` : ""}
     ${v.patent ? `
       <div class="patent-box">
         <div class="card-label" style="color:var(--cyan)">Проект патентной заявки · ${esc(v.patent.status)}</div>
@@ -1026,25 +951,36 @@ function renderWizard() {
       </div>`;
   } else {
     const r = w.result;
-    body = `
-      ${stepsBar}
-      <div class="success-check">
-        <svg width="34" height="34" viewBox="0 0 24 24" fill="none"><path d="m5 13 4.2 4.2L19 7.4" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      </div>
-      <div style="text-align:center">
-        <b style="font-size:17px">Карточка ${esc(r.hid)} создана</b>
-        <div class="note" style="margin-top:4px">iВасёк завёл карточку, Морг готовит kill-проверки.</div>
-      </div>
-      <div class="kpi-grid">
-        <div class="kpi"><b>${r.pi.toFixed(3)}</b><span>PI</span></div>
-        <div class="kpi"><b style="color:var(--ok)">${r.ppi.toFixed(2)}</b><span>PPI оч/ч</span></div>
-        <div class="kpi"><b>${r.position}<em> из ${r.of}</em></b><span>место в очереди</span></div>
-        <div class="kpi"><b>2▲ 1▼</b><span>ставки экипажа</span></div>
-      </div>
-      <div class="split">
-        <button class="btn block" data-act="wz-goto" data-nav="pipe">В конвейер</button>
-        <button class="btn primary block" data-act="wz-goto" data-nav="crew">Чат экипажа</button>
-      </div>`;
+    if (!r.ok) {
+      // живой контур отклонил идею (обычно дубль) — показываем причину
+      body = `
+        ${stepsBar}
+        <div class="banner warn">${ICO.warn}<span>Идея не принята: ${esc(r.reason || "причина в логе идей")}</span></div>
+        <div class="note">Дубликаты отклоняются на входе — это защита бюджета. Заостри отличие механизма и попробуй снова.</div>
+        <div class="split">
+          <button class="btn block" data-act="wz-back">← Исправить</button>
+          <button class="btn primary block" data-act="sheet-close">Закрыть</button>
+        </div>`;
+    } else {
+      body = `
+        ${stepsBar}
+        <div class="success-check">
+          <svg width="34" height="34" viewBox="0 0 24 24" fill="none"><path d="m5 13 4.2 4.2L19 7.4" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </div>
+        <div style="text-align:center">
+          <b style="font-size:17px">${esc(r.inbox_id || "Идея")} → inbox</b>
+          <div class="note" style="margin-top:4px">Экипаж разберёт на ближайшем тике: kill-стадия, PI/PPI, очередь или лог отклонённых.</div>
+        </div>
+        <div class="kpi-grid">
+          <div class="kpi"><b>${(r.estimate && r.estimate.signals) ?? "—"}</b><span>оценка сигналов</span></div>
+          <div class="kpi"><b>${fmtN((r.estimate && r.estimate.hours) || w.hours, 1)} ч</b><span>оценка GPU</span></div>
+        </div>
+        <div class="note mono">${esc(r.next || "python tools/rg.py ideas")}</div>
+        <div class="split">
+          <button class="btn block" data-act="sheet-close">Закрыть</button>
+          <button class="btn primary block" data-act="wz-goto" data-nav="crew">Чат экипажа</button>
+        </div>`;
+    }
   }
 
   openSheet(`<div id="wiz">${body}</div>`, "full");
@@ -1077,10 +1013,8 @@ function bindWizard() {
     const j = await api({ type: "submit_idea", text: w.text, hours: w.hours, early_pct: w.early_pct,
       signals: w.signals, novelty: w.novelty, standard: w.standard, money: w.money,
       decidability: w.decidability, forecast: `${fmtPct(w.forecast)} ${w.metric}` });
-    if (j.ok) {
-      w.result = j; w.step = 4; haptic("ok");
-      await refresh(); renderWizard();
-    } else if (btn) { btn.disabled = false; btn.textContent = "Отправить экипажу"; }
+    w.result = j; w.step = 4; haptic(j.ok ? "ok" : "warn");
+    await refresh(); renderWizard();
   });
   $$("#sheet-body input[data-wz]").forEach((el) => el.addEventListener("input", (e) => {
     w[e.target.dataset.wz] = +e.target.value;
@@ -1222,40 +1156,36 @@ document.addEventListener("click", async (e) => {
       break;
     }
     case "approve": {
-      const ok = el.dataset.ok === "1", id = el.dataset.id;
+      const ok = el.dataset.ok === "1", id = el.dataset.hid;
       if (!ok && S.pendingReject !== id) { S.pendingReject = id; haptic("warn"); renderScreen(); setTimeout(() => { if (S.pendingReject === id) { S.pendingReject = null; renderScreen(); } }, 3200); break; }
       haptic(ok ? "ok" : "warn");
-      const j = await api({ type: "approve", id, ok });
+      const j = await api({ type: "approve", hid: id, ok });
       if (j.ok) { S.pendingReject = null; toast(ok ? "Прогон одобрен — встаёт в план" : "Дорогой прогон отклонён, гипотеза закрыта", ok ? "ok" : ""); refresh(); }
-      break;
-    }
-    case "boost": {
-      haptic();
-      const j = await api({ type: "boost", hid: el.dataset.hid });
-      if (j.ok) { toast(`Приоритет поднят: PPI ${fmtN(j.ppi)} оч/ч`, "ok"); await refresh(); if (S.sheet) openHyp(el.dataset.hid); }
       break;
     }
     case "run-check": {
       haptic();
-      el.disabled = true; el.textContent = "Идёт…";
-      const j = await api({ type: "run_check", hid: el.dataset.hid, i: +el.dataset.i });
-      if (j.ok) { toast("Проверка запущена — Морг готовит контраргументы"); await refresh(); if (S.sheet) openHyp(el.dataset.hid); setTimeout(() => { if (S.sheet) openHyp(el.dataset.hid); }, 8500); }
+      el.disabled = true; el.textContent = "Гейт…";
+      const j = await api({ type: "run_check", hid: el.dataset.hid });
+      const box = $("#gate-result");
+      if (box && j && typeof j === "object") {
+        const problems = j.problems || [];
+        box.innerHTML = problems.length
+          ? `<div class="note" style="margin-bottom:5px">Гейт: запуск запрещён, ${problems.length} замеч.</div>` +
+            problems.map((p) => `<div class="bad"><span>!</span>${esc(p)}</div>`).join("")
+          : `<div class="ok"><span>✓</span>гейт пройден: запуск разрешён</div>`;
+      } else if (box) box.innerHTML = `<div class="note">Гейт не дал ответа</div>`;
+      el.disabled = false; el.textContent = "Проверить гейтом";
+      await refresh();
       break;
     }
     case "run-level": {
       haptic();
       const j = await api({ type: "run_level", hid: el.dataset.hid, level: el.dataset.lv });
-      if (j.ok) {
-        if (j.approval) toast("Дороже 12 GPU-ч — заявка ушла на подтверждение (Пульт)", "warn");
-        else toast(`${el.dataset.lv} поставлен в план`, "ok");
-        await refresh(); if (S.sheet) openHyp(el.dataset.hid);
-      }
-      break;
-    }
-    case "vote": {
-      haptic();
-      const j = await api({ type: "vote", dispute_id: el.dataset.d, option: el.dataset.o });
-      if (j.ok) { toast("Голос учтён (вес ×2)", "ok"); refresh(); }
+      if (j.ok) { toast(`${el.dataset.lv}: запуск пошёл через dispatch`, "ok"); }
+      else if (j.approval) toast("Дороже порога — нужно одобрение человека", "warn");
+      else toast(j.reason ? `Гейт: ${String(j.reason).slice(0, 90)}` : "Гейт не пройден", "err");
+      await refresh(); if (S.sheet) openHyp(el.dataset.hid);
       break;
     }
     case "share-report": {
