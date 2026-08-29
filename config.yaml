@@ -1,0 +1,183 @@
+# researchagen — config.yaml (профиль Hermes Agent)
+# Все ключи сверены с документацией hermes-agent (configuration / profiles /
+# cron / goals / loops / kanban / skills / profile-distributions).
+# Подстановки ${VAR} берутся из .env — секреты в config.yaml не попадают.
+# Установщик (install.ps1 / install.sh) правит только помеченные <<INSTALLER>> строки.
+
+# ---------------------------------------------------------------- модель
+providers:
+  local_qwen:
+    base_url: ${RESEARCHAGEN_MODEL_BASE_URL}   # <<INSTALLER>> http://localhost:11434/v1
+    api_key: ${RESEARCHAGEN_MODEL_API_KEY}
+    request_timeout_seconds: 1800
+    stale_timeout_seconds: 0                   # локальный endpoint: детектор «зависания» выкл
+
+model:
+  provider: local_qwen
+  default: ${RESEARCHAGEN_MODEL_NAME}          # <<INSTALLER>> qwen3:27b-q6_K
+  # Реальное окно Qwen3-27B Q6 + KV-cache Q8 на 32 GB VRAM. От этого числа
+  # считается порог компрессии — завышать опасно.
+  context_length: 32768                        # <<INSTALLER>>
+
+agent:
+  reasoning_effort: medium
+  clarify_timeout: 900                         # 15 мин на ответ на inline-кнопку, потом решает сам
+
+# ---------------------------------------------------------------- терминал
+terminal:
+  backend: local
+  cwd: ${RESEARCHAGEN_HOME}                    # <<INSTALLER>> абсолютный путь к рабочей папке
+  timeout: 900                                 # короткие команды; обучение запускать background=true
+  home_mode: auto
+  env_passthrough:
+    - RESEARCHAGEN_HOME
+    - CUDA_VISIBLE_DEVICES
+
+# ---------------------------------------------------------------- память и контекст
+memory:
+  memory_enabled: true
+  memory_char_limit: 2400
+  write_approval: false
+
+compression:
+  enabled: true
+  threshold: 0.55                              # доля окна (НЕ токены)
+  protect_last_n: 20
+  idle_compact_after_seconds: 1800
+
+skills:
+  guard_agent_created: false
+  write_approval: false
+
+# ---------------------------------------------------------------- автономия
+goals:
+  max_turns: 30                                # бюджет автопродолжений /goal
+
+loops:
+  min_interval_seconds: 60
+  max_ticks: 0                                 # 0 = без потолка: мониторинг прогона должен доживать до конца
+  self_paced_floor_seconds: 60
+  self_paced_ceiling_seconds: 900
+
+cron:
+  preflight: true                              # мисконфигурированный тик не тратит токены
+  model_drift_guard: true
+  failure_nudge_threshold: 3
+  allow_agent_scheduling: false                # контур фиксирован: никаких саморазмножающихся тасков
+
+kanban:
+  dispatch_in_gateway: true
+  failure_limit: 2
+
+# aux-задачи. По умолчанию всё на локальной модели (ноль внешних затрат).
+# Если установщик получил OPENROUTER_API_KEY — он раскомментирует облачные слоты:
+# judge и compression — единственные места, где слабая локальная модель реально вредит.
+auxiliary:
+  goal_judge:
+    provider: local_qwen                       # <<INSTALLER>> openrouter, если есть ключ
+    model: ${RESEARCHAGEN_MODEL_NAME}          # <<INSTALLER>> google/gemini-2.5-flash
+    max_tokens: 400
+  compression:
+    provider: local_qwen                       # <<INSTALLER>>
+    model: ${RESEARCHAGEN_MODEL_NAME}          # <<INSTALLER>>
+  title_generation:
+    provider: local_qwen
+    model: ${RESEARCHAGEN_MODEL_NAME}
+  approval:
+    provider: local_qwen
+    model: ${RESEARCHAGEN_MODEL_NAME}
+
+# ---------------------------------------------------------------- быстрые команды
+# exec-алиасы: работают и в CLI, и в Telegram, без хода модели (0 токенов).
+quick_commands:
+  gpu:
+    type: exec
+    command: python tools/gpu.py show
+  q:
+    type: exec
+    command: python tools/queue.py list --top 12
+  st:
+    type: exec
+    command: python tools/rg.py status
+  doctor:
+    type: exec
+    command: python tools/selfcheck.py all
+
+# ---------------------------------------------------------------- Telegram
+platforms:
+  telegram:
+    extra:
+      rich_messages: true                      # нативные таблицы/task-list — очередь читаема
+      rich_drafts: false
+      disable_link_previews: true
+      status_indicator: true
+      status_online: "🟢 researchagen: контур активен"
+      status_offline: "🔴 researchagen: gateway остановлен"
+      command_menu:
+        max_commands: 60
+        priority_mode: prepend
+        priority: [pool, next, dr, add, launch, v, h, digest, gpu, auto]
+      dm_topics:
+        - chat_id: ${TELEGRAM_HOME_CHANNEL}     # <<INSTALLER>>
+          ignore_root_dm: false
+          topics:
+            - { name: "📊 Штаб",         icon_color: 7322096 }
+            - { name: "🔬 Research",      icon_color: 16766590, skill: dr }
+            - { name: "📋 Очередь",      icon_color: 9367192,  skill: pool }
+            - { name: "🧪 Эксперименты", icon_color: 4368165,  skill: launch }
+            - { name: "⚖️ Вердикты",     icon_color: 16753697, skill: verdict }
+
+gateway:
+  streaming:
+    enabled: true
+    transport: auto                            # native draft-стриминг, fallback — edit
+
+display:
+  tool_progress_command: true
+  platforms:
+    telegram:
+      notifications: important                 # пуш только на вердикты/подтверждения
+
+runtime:
+  nofile_soft_limit: 4096
+
+database:
+  journal_mode: wal
+
+# ---------------------------------------------------------------- собственные ключи профиля
+# Читаются только инструментами tools/*.py через tools/core.py.
+# Hermes игнорирует неизвестные топ-левел секции.
+researchagen:
+  platform: windows                            # <<INSTALLER>> windows | macos
+  mode: production                             # <<INSTALLER>> production (win) | debug (macos)
+  autolaunch: true                             # R4: автозапуск экспериментов
+  limits:
+    approval_gpu_hours: 12                     # R7: дороже — только с /approve
+    min_live_hypotheses: 3                     # R2
+    preempt_ratio: 2.0                         # R6
+    gpu_free_gb_required: 20                   # минимум свободной VRAM для L1+
+    max_parallel_experiments: 1                # GPU — один ресурс
+    daily_gpu_hours_budget: 20
+  pi_weights:                                  # пересчитываются cron'ом weekly-recalib
+    signals: 0.22
+    novelty: 0.16
+    early: 0.12
+    standard: 0.14
+    money: 0.14
+    decidability: 0.22
+  aging:
+    per_day: 0.05
+    cap: 0.30
+  bins:                                        # границы корзин в GPU-часах
+    p1_max_hours: 4
+    p2_max_hours: 12
+    p3_max_hours: 48
+  cascade:
+    l0_max_minutes: 5
+    l1_max_minutes: 60
+    l1_min_seeds: 3
+    l2_max_hours: 8
+    l3_min_seeds: 5
+  telegram:
+    progress_every_seconds: 900                # карточка прогресса не чаще раза в 15 мин
+    digest_hour: 9

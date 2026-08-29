@@ -1,0 +1,40 @@
+# researchagen — комплект скиллов исследовательского контура.
+# Устанавливается установщиком в ~/.hermes/skill-bundles/research-os.yaml,
+# сами скиллы — в ~/.hermes/skills/<name>/SKILL.md.
+
+slug: research-os
+name: Research OS (researchagen)
+description: >
+  Автономный исследовательский контур по training dynamics: добыча сигналов,
+  сборка гипотез, kill-стадия, каскад L0–L3 на одной RTX 5090, вердикты,
+  калибровка приоритетов и телеметрия в Telegram.
+version: 1.0.0
+
+skills:
+  # Исследование
+  - dr
+  - mine
+  - h
+  - kill
+  # Исполнение
+  - pool
+  - next
+  - launch
+  - preempt
+  - v
+  # Управление и наблюдение
+  - auto
+  - panel
+  - digest
+  - gpu
+  - calib
+  - patent
+  - add
+  - board
+  - doctor
+
+notes: |
+  Порядок списка — смысловой, а не алфавитный: сначала то, что создаёт знание,
+  затем то, что тратит GPU, затем то, что отчитывается.
+  Все скиллы вызывают только stdlib-Python из tools/ — внешних зависимостей нет.
+  Единая точка входа — `python tools/rg.py <команда>`.

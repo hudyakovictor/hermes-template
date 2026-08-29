@@ -1,0 +1,38 @@
+# Секреты и пользовательские данные — никогда в репозиторий.
+.env
+.env.local
+auth.json
+memories/
+sessions/
+state.db
+state.db-shm
+state.db-wal
+logs/
+workspace/
+plans/
+home/
+*_cache/
+local/
+
+# Собственное состояние профиля (очередь, вердикты, калибровка)
+state/
+reports/*.md
+!reports/.gitkeep
+signals/*
+!signals/.gitkeep
+hypotheses/*
+!hypotheses/.gitkeep
+experiments/*/results/
+inbox/*
+!inbox/.gitkeep
+memory/*
+!memory/.gitkeep
+
+# Мусор
+__pycache__/
+*.py[cod]
+.DS_Store
+Thumbs.db
+*.log
+*.tmp
+.venv/

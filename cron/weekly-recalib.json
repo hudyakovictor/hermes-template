@@ -1,0 +1,9 @@
+{
+  "name": "weekly-recalib",
+  "description": "Недельная калибровка весов PI по закрытым вердиктам и отчёт за неделю",
+  "schedule": "0 20 * * 0",
+  "command": "python tools/rg.py recalib && python tools/rg.py weekly --send",
+  "delivery": "telegram:<<INSTALLER_CHAT_ID>>:<<INSTALLER_THREAD_ID>>",
+  "enabled": true,
+  "notes": "recalib сам отказывается менять веса при менее 8 закрытых вердиктах или одном классе исходов. Шаг веса ограничен 20 % относительно, config.yaml не перезаписывается."
+}

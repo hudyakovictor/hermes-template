@@ -1,0 +1,9 @@
+{
+  "name": "daily-digest",
+  "description": "Суточная сводка в Telegram: что сделано, что идёт, сколько стоило",
+  "schedule": "0 9 * * *",
+  "command": "python tools/rg.py digest --send",
+  "delivery": "telegram:<<INSTALLER_CHAT_ID>>:<<INSTALLER_THREAD_ID>>",
+  "enabled": true,
+  "notes": "Значения delivery подставляет установщик. Если темы (topics) не используются, thread_id остаётся пустым и сообщение уходит в общий чат. Сводка всегда называет причину простоя, если за сутки ничего не случилось."
+}

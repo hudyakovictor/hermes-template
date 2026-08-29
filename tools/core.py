@@ -1,0 +1,380 @@
+"""researchagen — ядро инструментов.
+
+Только stdlib. Никаких pip-зависимостей: профиль обязан ставиться на чистую
+Windows и macOS рядом с уже установленным hermes-agent.
+
+Ответственность модуля:
+  * пути профиля;
+  * чтение config.yaml (мини-парсер подмножества YAML) и .env;
+  * единая SQLite-база состояния (очередь, запуски, вердикты, события, настройки);
+  * журнал событий и вывод (таблицы / JSON) для Telegram и CLI.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import re
+import sqlite3
+import sys
+import time
+from datetime import datetime, timedelta, timezone
+
+# --------------------------------------------------------------------------- пути
+
+TOOLS_DIR = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.environ.get("RESEARCHAGEN_HOME") or os.path.dirname(TOOLS_DIR)
+ROOT = os.path.abspath(ROOT)
+
+STATE_DIR = os.path.join(ROOT, "state")
+DB_PATH = os.path.join(STATE_DIR, "researchagen.sqlite3")
+SIGNALS_DIR = os.path.join(ROOT, "signals")
+HYPO_DIR = os.path.join(ROOT, "hypotheses")
+EXP_DIR = os.path.join(ROOT, "experiments")
+INBOX_DIR = os.path.join(ROOT, "inbox")
+MEMORY_DIR = os.path.join(ROOT, "memory")
+REPORTS_DIR = os.path.join(ROOT, "reports")
+LOGS_DIR = os.path.join(ROOT, "logs")
+CONFIG_PATH = os.path.join(ROOT, "config.yaml")
+ENV_PATH = os.path.join(ROOT, ".env")
+
+ALL_DIRS = (STATE_DIR, SIGNALS_DIR, HYPO_DIR, EXP_DIR, INBOX_DIR,
+            MEMORY_DIR, REPORTS_DIR, LOGS_DIR)
+
+
+def ensure_dirs() -> None:
+    for d in ALL_DIRS:
+        os.makedirs(d, exist_ok=True)
+
+
+# --------------------------------------------------------------------------- время
+
+def now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def iso(dt: datetime | None = None) -> str:
+    return (dt or now()).replace(microsecond=0).isoformat()
+
+
+def parse_iso(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        dt = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+
+def age_days(value: str | None) -> float:
+    dt = parse_iso(value)
+    if dt is None:
+        return 0.0
+    return max(0.0, (now() - dt).total_seconds() / 86400.0)
+
+
+def human_delta(seconds: float) -> str:
+    seconds = int(max(0, seconds))
+    if seconds < 90:
+        return f"{seconds}с"
+    if seconds < 5400:
+        return f"{seconds // 60}мин"
+    if seconds < 172800:
+        return f"{seconds / 3600:.1f}ч"
+    return f"{seconds / 86400:.1f}д"
+
+
+# --------------------------------------------------------------------------- .env
+
+def load_env(path: str = ENV_PATH) -> dict:
+    """Читает .env в dict и добавляет в os.environ то, чего там нет."""
+    data: dict[str, str] = {}
+    if os.path.exists(path):
+        with open(path, "r", encoding="utf-8") as fh:
+            for raw in fh:
+                line = raw.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key, _, val = line.partition("=")
+                key = key.strip()
+                val = val.strip().strip('"').strip("'")
+                data[key] = val
+                os.environ.setdefault(key, val)
+    for key in ("TELEGRAM_BOT_TOKEN", "TELEGRAM_HOME_CHANNEL", "TELEGRAM_ALLOWED_USERS",
+                "TELEGRAM_CRON_THREAD_ID", "RESEARCHAGEN_MODEL_BASE_URL",
+                "RESEARCHAGEN_MODEL_NAME", "OPENROUTER_API_KEY"):
+        if key in os.environ and key not in data:
+            data[key] = os.environ[key]
+    return data
+
+
+# --------------------------------------------------------------------------- config.yaml
+
+_NUM_RE = re.compile(r"^-?\d+(\.\d+)?$")
+
+
+def _coerce(token: str):
+    token = token.strip()
+    if token.startswith("#"):
+        return None
+    if len(token) >= 2 and token[0] in "'\"" and token[-1] == token[0]:
+        return token[1:-1]
+    # отрезаем комментарий в хвосте значения
+    if "#" in token:
+        token = token.split("#", 1)[0].strip()
+    if token in ("true", "True", "yes"):
+        return True
+    if token in ("false", "False", "no"):
+        return False
+    if token in ("null", "~", ""):
+        return None
+    if _NUM_RE.match(token):
+        return float(token) if "." in token else int(token)
+    return token
+
+
+def load_config(path: str = CONFIG_PATH) -> dict:
+    """Мини-парсер подмножества YAML: вложенные маппинги + скаляры.
+
+    Нам не нужен полный YAML: читаем только секцию researchagen: и пару
+    ключей модели. Списки и блоки dm_topics игнорируются осознанно.
+    """
+    root: dict = {}
+    if not os.path.exists(path):
+        return root
+    stack: list[tuple[int, dict]] = [(-1, root)]
+    with open(path, "r", encoding="utf-8") as fh:
+        for raw in fh:
+            if not raw.strip() or raw.lstrip().startswith("#"):
+                continue
+            if raw.lstrip().startswith("- "):
+                continue  # списки не используются инструментами
+            indent = len(raw) - len(raw.lstrip(" "))
+            line = raw.strip()
+            if ":" not in line:
+                continue
+            key, _, rest = line.partition(":")
+            key = key.strip()
+            while stack and indent <= stack[-1][0]:
+                stack.pop()
+            parent = stack[-1][1] if stack else root
+            rest = rest.strip()
+            if rest == "" or rest.startswith("#") or rest in (">-", ">", "|"):
+                node: dict = {}
+                parent[key] = node
+                stack.append((indent, node))
+            else:
+                parent[key] = _coerce(rest)
+    return root
+
+
+def cfg(dotted: str, default=None, config: dict | None = None):
+    """cfg('researchagen.limits.approval_gpu_hours', 12)"""
+    conf = config if config is not None else load_config()
+    node = conf
+    for part in dotted.split("."):
+        if not isinstance(node, dict) or part not in node:
+            return default
+        node = node[part]
+    return default if node is None else node
+
+
+def platform_mode(config: dict | None = None) -> tuple[str, bool]:
+    """(platform, is_debug). macOS — отладочный контур: эксперименты dry-run."""
+    plat = str(cfg("researchagen.platform", "", config) or "").lower()
+    if not plat:
+        plat = "macos" if sys.platform == "darwin" else (
+            "windows" if os.name == "nt" else "linux")
+    mode = str(cfg("researchagen.mode", "", config) or "").lower()
+    if not mode:
+        mode = "debug" if plat == "macos" else "production"
+    return plat, mode == "debug"
+
+
+# --------------------------------------------------------------------------- SQLite
+
+SCHEMA = """
+CREATE TABLE IF NOT EXISTS hypotheses (
+    id            TEXT PRIMARY KEY,          -- H-001
+    title         TEXT NOT NULL,
+    status        TEXT NOT NULL DEFAULT 'queued',
+    -- queued | running | paused_checkpoint | blocked | confirmed | partial
+    -- | rejected | killed | archived
+    level         TEXT NOT NULL DEFAULT 'L0',
+    signals       INTEGER NOT NULL DEFAULT 0,
+    novelty       REAL NOT NULL DEFAULT 0.5,
+    early_pct     REAL NOT NULL DEFAULT 10.0, -- % обучения, когда сигнал читаем
+    standard     REAL NOT NULL DEFAULT 0.4,   -- шанс стать стандартом
+    money        REAL NOT NULL DEFAULT 0.4,   -- коммерческий потенциал
+    decidability REAL NOT NULL DEFAULT 0.5,   -- однозначность PASS/FAIL
+    est_hours    REAL NOT NULL DEFAULT 4.0,
+    forecast     REAL,                        -- прогноз эффекта, % (фиксируется ДО запуска)
+    kill_checks_passed INTEGER NOT NULL DEFAULT 0,
+    source       TEXT NOT NULL DEFAULT 'dr',  -- dr | human | dr-deep
+    card_path    TEXT,
+    created_at   TEXT NOT NULL,
+    updated_at   TEXT NOT NULL,
+    notes        TEXT
+);
+
+CREATE TABLE IF NOT EXISTS runs (
+    run_id       INTEGER PRIMARY KEY AUTOINCREMENT,
+    hypo_id      TEXT NOT NULL,
+    level        TEXT NOT NULL,
+    state        TEXT NOT NULL DEFAULT 'running',  -- running | done | failed | preempted
+    seeds        INTEGER NOT NULL DEFAULT 0,
+    started_at   TEXT NOT NULL,
+    finished_at  TEXT,
+    gpu_hours    REAL NOT NULL DEFAULT 0.0,
+    dry_run      INTEGER NOT NULL DEFAULT 0,
+    pid          INTEGER,
+    log_path     TEXT,
+    FOREIGN KEY (hypo_id) REFERENCES hypotheses(id)
+);
+
+CREATE TABLE IF NOT EXISTS verdicts (
+    verdict_id   INTEGER PRIMARY KEY AUTOINCREMENT,
+    hypo_id      TEXT NOT NULL,
+    level        TEXT NOT NULL,
+    kind         TEXT NOT NULL,   -- confirmed | partial | rejected | killed
+    forecast     REAL,
+    actual       REAL,
+    deviation    REAL,            -- % отклонения факта от прогноза
+    seeds_pass   INTEGER NOT NULL DEFAULT 0,
+    seeds_total  INTEGER NOT NULL DEFAULT 0,
+    sigma        REAL,
+    gpu_hours    REAL NOT NULL DEFAULT 0.0,
+    what_changes TEXT,
+    created_at   TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS events (
+    event_id     INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind         TEXT NOT NULL,
+    hypo_id      TEXT,
+    payload      TEXT,
+    created_at   TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS settings (
+    key          TEXT PRIMARY KEY,
+    value        TEXT NOT NULL,
+    updated_at   TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_hypo_status ON hypotheses(status);
+CREATE INDEX IF NOT EXISTS idx_runs_state ON runs(state);
+CREATE INDEX IF NOT EXISTS idx_events_kind ON events(kind, created_at);
+"""
+
+
+def db(path: str = DB_PATH) -> sqlite3.Connection:
+    ensure_dirs()
+    conn = sqlite3.connect(path, timeout=30)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA foreign_keys=ON")
+    conn.executescript(SCHEMA)
+    return conn
+
+
+def log_event(conn: sqlite3.Connection, kind: str, hypo_id: str | None = None,
+              **payload) -> None:
+    conn.execute(
+        "INSERT INTO events (kind, hypo_id, payload, created_at) VALUES (?,?,?,?)",
+        (kind, hypo_id, json.dumps(payload, ensure_ascii=False), iso()),
+    )
+    conn.commit()
+
+
+def setting(conn: sqlite3.Connection, key: str, default=None):
+    row = conn.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
+    if row is None:
+        return default
+    try:
+        return json.loads(row["value"])
+    except json.JSONDecodeError:
+        return row["value"]
+
+
+def set_setting(conn: sqlite3.Connection, key: str, value) -> None:
+    conn.execute(
+        "INSERT INTO settings (key, value, updated_at) VALUES (?,?,?) "
+        "ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at",
+        (key, json.dumps(value, ensure_ascii=False), iso()),
+    )
+    conn.commit()
+
+
+def next_hypo_id(conn: sqlite3.Connection) -> str:
+    row = conn.execute("SELECT id FROM hypotheses ORDER BY id DESC LIMIT 1").fetchone()
+    if row is None:
+        return "H-001"
+    try:
+        num = int(str(row["id"]).split("-")[-1]) + 1
+    except ValueError:
+        num = conn.execute("SELECT COUNT(*) FROM hypotheses").fetchone()[0] + 1
+    return f"H-{num:03d}"
+
+
+# --------------------------------------------------------------------------- вывод
+
+LIVE_STATUSES = ("queued", "running", "paused_checkpoint", "blocked")
+CLOSED_STATUSES = ("confirmed", "partial", "rejected", "killed", "archived")
+
+
+def table(rows: list[list], header: list[str]) -> str:
+    """Markdown-таблица: Telegram с rich_messages рендерит её нативно."""
+    cells = [[str(c) for c in r] for r in rows]
+    if not cells:
+        return "_пусто_"
+    widths = [len(h) for h in header]
+    for row in cells:
+        for i, c in enumerate(row):
+            widths[i] = max(widths[i], len(c))
+    out = ["| " + " | ".join(h.ljust(widths[i]) for i, h in enumerate(header)) + " |",
+           "|" + "|".join("-" * (w + 2) for w in widths) + "|"]
+    for row in cells:
+        out.append("| " + " | ".join(c.ljust(widths[i]) for i, c in enumerate(row)) + " |")
+    return "\n".join(out)
+
+
+def emit(payload, as_json: bool, text: str | None = None) -> None:
+    if as_json:
+        print(json.dumps(payload, ensure_ascii=False, indent=2, default=str))
+    else:
+        print(text if text is not None else payload)
+
+
+def wants_json(argv: list[str]) -> bool:
+    return "--json" in argv
+
+
+def arg(argv: list[str], name: str, default=None):
+    """--key value | --key=value"""
+    flag = f"--{name}"
+    for i, token in enumerate(argv):
+        if token == flag and i + 1 < len(argv):
+            return argv[i + 1]
+        if token.startswith(flag + "="):
+            return token.split("=", 1)[1]
+    return default
+
+
+def flag(argv: list[str], name: str) -> bool:
+    return f"--{name}" in argv
+
+
+def fail(message: str, code: int = 2) -> "NoReturn":  # type: ignore[name-defined]
+    print(f"ОШИБКА: {message}", file=sys.stderr)
+    raise SystemExit(code)
+
+
+def append_log(name: str, line: str) -> None:
+    ensure_dirs()
+    with open(os.path.join(LOGS_DIR, name), "a", encoding="utf-8") as fh:
+        fh.write(f"{iso()} {line}\n")
+
+
+__all__ = [n for n in dir() if not n.startswith("_")]

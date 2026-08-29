@@ -1,0 +1,60 @@
+name: researchagen
+version: 1.0.0
+description: >-
+  Автономный исследователь training dynamics: непрерывный DEEP_RESEARCH,
+  приоритетная очередь гипотез (PI/PPI), каскад L0-L3 на локальной модели,
+  полное управление и телеметрия в собственном Telegram-боте.
+author: researchagen
+license: MIT
+hermes_requires: ">=0.12.0"
+homepage: "https://github.com/<you>/researchagen"
+tags: [research, training-dynamics, autonomous, telegram, local-model]
+
+# Что заменяется при `hermes profile update researchagen`.
+# config.yaml по умолчанию сохраняется (в нём лежат подстановки установщика:
+# base_url локальной модели, chat_id, лимиты) — сбросить его можно только
+# явным --force-config.
+distribution_owned:
+  - SOUL.md
+  - .hermes.md
+  - MISSION.md
+  - FOCUS.md
+  - skills/
+  - skill-bundles/
+  - cron/
+  - hooks/
+  - tools/
+  - tests/
+  - docs/
+  - distribution.yaml
+
+env_requires:
+  - name: TELEGRAM_BOT_TOKEN
+    description: "Токен ОТДЕЛЬНОГО Telegram-бота этого профиля (не тот, что у основного агента)"
+    required: true
+  - name: TELEGRAM_HOME_CHANNEL
+    description: "chat_id, куда падают дайджесты и вердикты (личка или группа обоих пользователей)"
+    required: true
+  - name: TELEGRAM_ALLOWED_USERS
+    description: "user_id обоих пользователей через запятую — оба видят одного бота и одну статистику"
+    required: true
+  - name: RESEARCHAGEN_MODEL_BASE_URL
+    description: "OpenAI-совместимый endpoint локальной Qwen3-27B (Ollama: http://localhost:11434/v1)"
+    required: true
+    default: "http://localhost:11434/v1"
+  - name: RESEARCHAGEN_MODEL_NAME
+    description: "Имя модели на endpoint'е (например qwen3:27b-q6_K)"
+    required: true
+    default: "qwen3:27b"
+  - name: RESEARCHAGEN_MODEL_API_KEY
+    description: "Ключ для endpoint'а; для Ollama достаточно любого непустого значения"
+    required: false
+    default: "ollama"
+  - name: OPENROUTER_API_KEY
+    description: "Необязательно: облачная модель для aux-задач (judge/compression/title), если локальной мало"
+    required: false
+    default: ""
+  - name: TELEGRAM_CRON_THREAD_ID
+    description: "Необязательно: thread_id топика «Штаб» для доставки дайджестов"
+    required: false
+    default: ""
