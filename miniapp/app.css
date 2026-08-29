@@ -172,7 +172,17 @@ input, textarea, select { font: inherit; color: var(--tx); }
 .btn.sm { padding: 9px 13px; font-size: 14px; border-radius: 11px; }
 .btn.block { width: 100%; }
 .btn:disabled { opacity: .45; pointer-events: none; }
-.btn svg { flex: 0 0 auto; }
+.btn svg { width: 18px; height: 18px; flex: 0 0 auto; }
+.btn.sm svg { width: 16px; height: 16px; }
+#fab svg { width: 26px; height: 26px; }
+.tab svg { width: 24px; height: 24px; }
+.brand-mark svg { width: 24px; height: 24px; }
+.sheet-x svg { width: 15px; height: 15px; }
+.banner svg { width: 19px; height: 19px; flex: 0 0 auto; }
+.t-ico { display: grid; place-items: center; width: 18px; height: 18px; color: var(--tx2); flex: 0 0 auto; }
+.t-ico svg { width: 18px; height: 18px; }
+.t-ico.ok { color: var(--ok); }
+.t-ico.err { color: var(--err); }
 
 /* кнопка удержания (критические действия) */
 .hold-btn { position: relative; overflow: hidden; }
@@ -317,7 +327,7 @@ input, textarea, select { font: inherit; color: var(--tx); }
 .check.fail .ic { background: var(--err-soft); color: var(--err); }
 .check.run .ic { background: var(--acc-soft); color: var(--acc); animation: pulse 1.4s infinite; }
 .check.wait .ic { background: var(--card3); color: var(--tx3); }
-.check .ct { font-size: 14.5px; line-height: 1.45; color: var(--tx2); flex: 1; }
+.check .ct { font-size: 15px; line-height: 1.45; color: var(--tx2); flex: 1; }
 .check.pass .ct { color: var(--tx); }
 .check .ca { flex: 0 0 auto; }
 .check.fail .ct b { color: var(--err); }
@@ -363,15 +373,18 @@ input, textarea, select { font: inherit; color: var(--tx); }
 .msg.hl { background: var(--violet-soft); }
 .msg .m-body { min-width: 0; flex: 1; }
 .m-head { display: flex; align-items: baseline; gap: 7px; }
-.m-name { font-size: 14.5px; font-weight: 750; }
-.m-zone { font-size: 11.5px; color: var(--tx3); }
+.m-name { font-size: 15px; font-weight: 750; }
 .m-time { font-size: 11px; color: var(--tx3); margin-left: auto; white-space: nowrap; }
-.m-text { font-size: 15.5px; line-height: 1.52; color: var(--tx); margin-top: 2px; overflow-wrap: anywhere; }
-.m-hid { display: inline-flex; margin-top: 6px; }
+.m-text { font-size: 16px; line-height: 1.52; color: var(--tx); margin-top: 2px; overflow-wrap: anywhere; }
+.m-hid {
+  background: none; border: 0; padding: 0; margin-top: 6px;
+  color: var(--acc-br); font-weight: 700; font-size: 13.5px;
+  text-decoration: underline dotted; text-underline-offset: 3px;
+}
 .msg .avatar { margin-top: 2px; }
 /* спор */
 .dispute { margin-top: 10px; padding: 12px; border-radius: var(--r-md); background: var(--card2); border: 1px dashed color-mix(in srgb, var(--violet) 54%, var(--line)); }
-.dispute .q { font-size: 14.5px; font-weight: 700; margin-bottom: 10px; display: flex; gap: 6px; }
+.dispute .q { font-size: 15px; font-weight: 700; margin-bottom: 10px; }
 .vote-opts { display: flex; flex-direction: column; gap: 7px; }
 .vote-opt { display: flex; justify-content: space-between; align-items: center; padding: 12px 13px; border-radius: 11px; background: var(--card3); border: 1px solid var(--line2); font-size: 14.5px; font-weight: 650; }
 .vote-opt.mine { border-color: var(--violet); background: var(--violet-soft); }
@@ -384,7 +397,7 @@ input, textarea, select { font: inherit; color: var(--tx); }
 /* замечания */
 .remark { display: flex; gap: 11px; padding: 12px; border-radius: var(--r-md); background: var(--card2); border: 1px solid var(--line); }
 .remark.closed { opacity: .62; }
-.remark .r-txt { font-size: 14.5px; line-height: 1.45; }
+.remark .r-txt { font-size: 15px; line-height: 1.45; }
 .remark .r-meta { display: flex; gap: 8px; align-items: center; margin-top: 7px; flex-wrap: wrap; font-size: 12.5px; color: var(--tx3); }
 /* ставки */
 .bet-row { padding: 12px; border-radius: var(--r-md); background: var(--card2); border: 1px solid var(--line); margin-bottom: 10px; }
@@ -517,7 +530,7 @@ input[type="range"]::-webkit-slider-thumb {
 .split { display: flex; gap: 10px; }
 .split > * { flex: 1; }
 .divider { height: 1px; background: var(--line); margin: 4px 0; }
-.note { font-size: 13px; color: var(--tx3); line-height: 1.55; }
+.note { font-size: 13.5px; color: var(--tx2); line-height: 1.55; }
 .patent-box { border: 1px dashed color-mix(in srgb, var(--cyan) 48%, var(--line)); border-radius: var(--r-md); padding: 13px; background: rgba(79, 212, 241, .07); }
 .fade-in { animation: rise .3s both; }
 .offline-pad { padding-bottom: 44px; }

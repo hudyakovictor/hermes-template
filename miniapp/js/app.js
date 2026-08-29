@@ -31,6 +31,18 @@ const STATUS_RU = { queued: "в очереди", running: "на GPU", blocked: "
 const KIND_RU = { confirmed: "Подтверждено", partial: "Частично", rejected: "Опровергнуто", killed: "Снято" };
 const MODE_RU = { discover: "поиск идей", triage: "отбор", testing: "прогон", analyze: "разбор", paused: "пауза" };
 const CHECK_RU = { pass: "✓", fail: "✕", run: "↻", wait: "•" };
+/* SVG-иконки: одна оптическая масса (24×24, currentColor), рендер 16–18px */
+const ICO = {
+  pause: '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1.3"/><rect x="14" y="5" width="4" height="14" rx="1.3"/></svg>',
+  play: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13l11-6.5z"/></svg>',
+  stop: '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2.2"/></svg>',
+  check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12.5 4.5 4.5L19 7"/></svg>',
+  x: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>',
+  up: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V6M6 12l6-6 6 6"/></svg>',
+  plus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>',
+  warn: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 3.5 2.5 20h19L12 3.5z"/><path d="M12 10v4.5" stroke-linecap="round"/><circle cx="12" cy="17.3" r="1" fill="currentColor" stroke="none"/></svg>',
+  info: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 11v5" stroke-linecap="round"/><circle cx="12" cy="7.6" r="1" fill="currentColor" stroke="none"/></svg>',
+};
 const BIN_COLOR = { P1: "ok", P2: "acc", P3: "warn", P4: "err" };
 
 /* --------------------------------------------------------------- утилиты */
@@ -65,7 +77,8 @@ function toast(text, kind) {
   const root = $("#toast-root");
   const el = document.createElement("div");
   el.className = "toast " + (kind || "");
-  el.innerHTML = `<span>${kind === "ok" ? "✓" : kind === "err" ? "✕" : "ℹ"}</span><span>${esc(text)}</span>`;
+  const ico = kind === "ok" ? ICO.check : kind === "err" ? ICO.x : ICO.info;
+  el.innerHTML = `<span class="t-ico ${kind || ""}">${ico}</span><span>${esc(text)}</span>`;
   root.appendChild(el);
   setTimeout(() => { el.style.transition = "opacity .3s, transform .3s"; el.style.opacity = "0"; el.style.transform = "translateY(6px)"; }, 2600);
   setTimeout(() => el.remove(), 3000);
@@ -193,7 +206,7 @@ function screenDash() {
   const hero = cur ? `
     <section class="card task-hero">
       <div class="th-top">
-        <span class="chip ${cur.status === "paused" ? "warn" : "acc"}">${cur.status === "paused" ? "⏸ пауза" : "считается"}</span>
+        <span class="chip ${cur.status === "paused" ? "warn" : "acc"}">${cur.status === "paused" ? "пауза" : "считается"}</span>
         <span class="chip mono">${esc(cur.hid)}</span>
         <span class="chip violet">${cur.level}</span>
         <span class="chip dim">сид ${cur.seed}/${cur.seeds_total}</span>
@@ -201,7 +214,7 @@ function screenDash() {
       <h3>${esc(cur.title)}</h3>
       <div class="th-sub">шаг <b class="mono num">${(cur.steps / 1000).toFixed(1)}k</b> из ${(cur.steps_total / 1000).toFixed(0)}k · прошло ${fmtMin(cur.elapsed_min)} · осталось ≈ ${fmtMin(cur.eta_min)}</div>
       ${progressHTML(cur.progress, cur.status === "paused")}
-      <div class="progress-row"><span>прогон</span><span>${Math.round(cur.progress * 100)}%</span><span>базовая кривая</span></div>
+      <div class="progress-row"><span>прогон</span><span>${Math.round(cur.progress * 100)}%</span></div>
       <div class="kv">
         <div class="kvv"><b class="mono">${cur.loss_now != null ? cur.loss_now.toFixed(4) : "—"}</b><span>loss сейчас</span></div>
         <div class="kvv"><b class="mono">${cur.base_now != null ? cur.base_now.toFixed(4) : "—"}</b><span>базовая</span></div>
@@ -209,11 +222,11 @@ function screenDash() {
       </div>
       <div class="split">
         ${cur.status === "paused"
-          ? `<button class="btn primary block" data-act="resume">▸ Продолжить</button>`
-          : `<button class="btn block" data-act="pause">⏸ Пауза (с чекпойнтом)</button>`}
+          ? `<button class="btn primary block" data-act="resume">${ICO.play} Продолжить</button>`
+          : `<button class="btn block" data-act="pause">${ICO.pause} Пауза · чекпойнт</button>`}
         <button class="btn danger hold-btn block" data-act="kill" data-hid="${esc(cur.hid)}" data-hold>
           <span class="hold-fill"></span>
-          <span class="btn-inner">⏺ Снять <small style="font-weight:600;opacity:.75">удержать</small></span>
+          <span class="btn-inner">${ICO.stop} Снять <small style="font-weight:600;opacity:.75">удержать 1,2 с</small></span>
         </button>
       </div>
     </section>` : `
@@ -236,7 +249,7 @@ function screenDash() {
           <div style="font-size:15px;margin:6px 0 8px">${esc(a.title)}</div>
           <div class="note">Порог подтверждения: ${g.approval_hours} GPU-ч. ${esc(a.note || "")}</div>
           <div class="split" style="margin-top:9px">
-            <button class="btn ok sm block" data-act="approve" data-id="${esc(a.id)}" data-ok="1">✓ Одобрить</button>
+            <button class="btn ok sm block" data-act="approve" data-id="${esc(a.id)}" data-ok="1">${ICO.check} Одобрить</button>
             <button class="btn danger sm block ${S.pendingReject === a.id ? "" : "ghost"}" data-act="approve" data-id="${esc(a.id)}" data-ok="0">${S.pendingReject === a.id ? "Точно отклонить?" : "Отклонить"}</button>
           </div>
         </div>`).join("")}
@@ -296,17 +309,17 @@ function screenDash() {
         <div class="kvv"><b>${g.budget_tasks.used}<em> / ${g.budget_tasks.limit}</em></b><span>задач дня</span></div>
       </div>
       <div class="bar" style="height:10px"><span class="fill" style="width:${(g.budget_hours.used / g.budget_hours.limit * 100).toFixed(1)}%;background:${g.budget_hours.used / g.budget_hours.limit > .8 ? "var(--warn)" : "linear-gradient(90deg,var(--acc),var(--violet))"}"></span></div>
-      <div class="note" style="margin-top:8px">Вытеснение: при PPI ×${g.preempt_ratio} выше у очереди — прогон прерывается с чекпойнтом.</div>
+      <div class="note" style="margin-top:8px">Вытеснение при PPI ×${g.preempt_ratio} у очереди — прогон прерывается с чекпойнтом.</div>
     </section>
     <section class="kpi-grid">
       <div class="kpi"><b>${st.calibration == null ? "—" : st.calibration + "%"}<em>точность</em></b><span>калибровка прогнозов</span></div>
       <div class="kpi"><b>${st.win_rate}%</b><span>подтверждено вердиктов</span></div>
-      <div class="kpi"><b>−${st.gpu_saved_h}<em>GPU-ч</em></b><span>сэкономлено ранними снятиями</span></div>
+      <div class="kpi"><b>−${st.gpu_saved_h}<em>GPU-ч</em></b><span>сэкономили ранние снятия</span></div>
       <div class="kpi"><b>${st.open_bets}</b><span>открытых ставок экипажа</span></div>
     </section>
     ${next}
     <section class="split">
-      <button class="btn primary block" data-act="wizard">＋ Подать идею</button>
+      <button class="btn primary block" data-act="wizard">${ICO.plus} Подать идею</button>
       <button class="btn block" data-act="nav" data-nav="crew">💬 Экипаж</button>
     </section>`;
 }
@@ -362,7 +375,7 @@ function screenPipe() {
     </div>
     ${list.length ? `<div class="list-gap">${list.map(hypCardHTML).join("")}</div>`
       : `<div class="empty"><div class="e-ico">🗂</div>Пусто. ${tab === "human" ? "Подай первую идею — кнопка «＋»." : "Очередь разобрана."}</div>`}
-    <div class="note" style="text-align:center">PPI = PI / GPU-час. Корзины: P1 ≤4ч · P2 ≤12ч · P3 ≤48ч · P4 дальше.</div>`;
+    <div class="note" style="text-align:center">PPI = PI / GPU-час · P1 ≤4ч · P2 ≤12ч · P3 ≤48ч · P4 &gt;48ч</div>`;
 }
 
 /* ============================================================================
@@ -422,7 +435,7 @@ function screenLive() {
     <section class="card chart-card">
       <div class="legend">${legend}</div>
       <div class="chart-wrap"><canvas id="ch-main"></canvas></div>
-      <div class="readout" id="ch-readout">проведи пальцем по графику — увидишь точные значения</div>
+      <div class="readout" id="ch-readout">коснись графика — точные значения</div>
     </section>
     <section class="card">
       <div class="card-label"><span>Сравнение прогонов</span><span class="r">loss, % хода</span></div>
@@ -459,7 +472,7 @@ function drawLiveCharts() {
       onScrub: (vals) => {
         const ro = $("#ch-readout");
         if (!ro) return;
-        if (!vals) { ro.textContent = "проведи пальцем по графику — увидишь точные значения"; return; }
+        if (!vals) { ro.textContent = "коснись графика — точные значения"; return; }
         const xs = ["base", "run", "rank", "s0", "s1", "s2"].filter((k) => vals[k]);
         const lbl = { base: "база", run: "прогон", rank: "ранг", s0: "сид 1", s1: "сид 2", s2: "сид 3" };
         ro.innerHTML = `<b class="mono">шаг ${Charts.fmtK(xs.map((k) => vals[k].x).reduce((a, b) => Math.max(a, b), 0))}</b>` +
@@ -495,21 +508,21 @@ function disputeHTML(ds) {
   const voted = ds._voted || (S.data && (S.data.user_votes || {})[ds.id]);
   if (ds.closed || voted) {
     return `<div class="dispute">
-      <div class="q">⚖ ${esc(ds.q)}</div>
+      <div class="q">${esc(ds.q)}</div>
       ${ds.options.map((o) => `
         <div class="vrow"><span>${esc(o.label)}</span>
           <span class="vbar"><i style="width:${Math.round(o.votes / total * 100)}%"></i></span>
           <b class="mono num">${Math.round(o.votes / total * 100)}%</b></div>`).join("")}
-      ${voted ? `<div class="boss-line">твой голос учтён с весом 2 · решение принимает Boss по базе</div>` : ""}
+      ${voted ? `<div class="boss-line">твой голос учтён (вес ×2) · решает Boss</div>` : ""}
       ${ds.boss ? `<div class="boss-line">Boss: ${esc(ds.boss)}</div>` : ""}
     </div>`;
   }
   return `<div class="dispute">
-    <div class="q">⚖ ${esc(ds.q)}</div>
+    <div class="q">${esc(ds.q)}</div>
     <div class="vote-opts">
       ${ds.options.map((o) => `<button class="vote-opt" data-act="vote" data-d="${esc(ds.id)}" data-o="${esc(o.id)}"><span>${esc(o.label)}</span><span>${o.votes}</span></button>`).join("")}
     </div>
-    <div class="note" style="margin-top:7px">Голос человека весит ×2, но спор закрывает арбитраж Boss'а числом из базы.</div>
+    <div class="note" style="margin-top:7px">Голос человека — вес ×2. Решает арбитраж Boss.</div>
   </div>`;
 }
 
@@ -520,8 +533,8 @@ function chatMsgHTML(m, i) {
     <div class="msg" ${hl} data-idx="${i}">
       ${avatar(m.agent)}
       <div class="m-body">
-        <div class="m-head"><span class="m-name" style="color:${AGENT_COLOR[m.agent] || "var(--tx)"}">${esc(agent ? agent.name : m.agent)}</span><span class="m-zone">${esc(agent ? agent.short : "")}</span><span class="m-time">${timeHM(m.ts)}</span></div>
-        <div class="m-text">${esc(m.text)}${m.hid ? ` <button class="chip acc m-hid mono" data-act="open-hyp" data-hid="${esc(m.hid)}">${esc(m.hid)}</button>` : ""}</div>
+        <div class="m-head"><span class="m-name" style="color:${AGENT_COLOR[m.agent] || "var(--tx)"}">${esc(agent ? agent.name : m.agent)}</span><span class="m-time">${timeHM(m.ts)}</span></div>
+        <div class="m-text">${esc(m.text)}${m.hid ? ` <button class="m-hid mono" data-act="open-hyp" data-hid="${esc(m.hid)}">${esc(m.hid)}</button>` : ""}</div>
         ${disputeHTML(m.dispute)}
       </div>
     </div>`;
@@ -561,7 +574,7 @@ function screenCrew() {
     const open = c.bets.filter((b) => b.status === "queued" || b.status === "running" || b.status === "blocked");
     const total = (b) => b.up.length + b.down.length || 1;
     body = `
-      <div class="card-label" style="margin-top:2px">Открытые ставки · закрываются вердиктом</div>
+      <div class="card-label" style="margin-top:2px">Открытые ставки</div>
       ${open.length ? open.map((b) => `
         <div class="bet-row">
           <div style="display:flex;gap:7px;align-items:center;flex-wrap:wrap">
@@ -594,7 +607,7 @@ function screenCrew() {
 
   const openRm = c.remarks.filter((r) => r.status === "open").length;
   return `
-    <div class="screen-title"><h1>Экипаж</h1><span class="sub">7 агентов · 0 GPU-ч на чат</span></div>
+    <div class="screen-title"><h1>Экипаж</h1><span class="sub">7 агентов</span></div>
     ${roster}
     <div class="seg violet">
       <button class="${tab === "chat" ? "on" : ""}" data-act="crew-tab" data-v="chat">Чат</button>
@@ -666,7 +679,7 @@ function screenVerdicts() {
         <div class="kvv"><b style="color:var(--err)">${counts.rejected}</b><span>опровержено</span></div>
         <div class="kvv"><b>${counts.killed}</b><span>снято рано</span></div>
       </div>
-      <div class="note">Убитая за 10 минут идея — успешный результат: −${d.stats.gpu_saved_h} GPU-ч сэкономлено ранними снятиями.</div>
+      <div class="note">Ранние снятия сэкономили ${d.stats.gpu_saved_h} GPU-ч.</div>
     </section>
     <div class="chips">
       <button class="fchip ${f === "all" ? "on" : ""}" data-act="vfilter" data-v="all">Все</button>
@@ -694,7 +707,7 @@ function openSheet(html, cls) {
   const sheet = document.createElement("div");
   sheet.className = "sheet" + (cls ? " " + cls : "");
   sheet.innerHTML = `<div class="sheet-grab"></div><div class="sheet-head">
-      <h2 id="sheet-title"></h2><button class="sheet-x" data-act="sheet-close">✕</button>
+      <h2 id="sheet-title"></h2><button class="sheet-x" data-act="sheet-close" aria-label="Закрыть">${ICO.x}</button>
     </div><div class="sheet-body" id="sheet-body">${html}</div>`;
   $("#sheet-root").appendChild(backdrop);
   $("#sheet-root").appendChild(sheet);
@@ -776,14 +789,14 @@ function openHyp(hid) {
       <div class="note">Закрываются вердиктом: confirmed/partial — выигрывают «за».</div>
     </div>` : ""}
     <div class="split">
-      <button class="btn block" data-act="boost" data-hid="${esc(h.id)}">↑ Приоритет (aging +2 дня)</button>
+      <button class="btn block" data-act="boost" data-hid="${esc(h.id)}">${ICO.up} Приоритет</button>
     </div>
     <div>
       <div class="card-label">Запустить уровень вручную</div>
       <div class="split">
         ${runs.slice(0, 3).map(([lv, hh]) => `<button class="btn sm block ${lv === "L2" ? "ghost" : ""}" data-act="run-level" data-hid="${esc(h.id)}" data-lv="${lv}">${lv} · ${fmtN(hh, 1)}ч</button>`).join("")}
       </div>
-      <div class="note" style="margin-top:7px">L2 дороже 12 GPU-ч — уйдёт на подтверждение человеку. Списание бюджета: ${fmtN(S.data.gov.budget_hours.used, 1)}/${S.data.gov.budget_hours.limit} ч.</div>
+      <div class="note" style="margin-top:7px">L2 &gt; 12 ч — на подтверждение человеку · бюджет ${fmtN(S.data.gov.budget_hours.used, 1)}/${S.data.gov.budget_hours.limit} ч</div>
     </div>`;
   openSheet(open);
   setSheetTitle("Гипотеза");
@@ -911,7 +924,6 @@ function renderWizard() {
   const w = S.wizard;
   if (!w) return;
   const d = S.data;
-  const q = (w.step === 3 && w.qualityCache);
   const stepsBar = `<div class="wiz-steps">${[1, 2, 3, 4].map((i) => `<i class="${w.step >= i ? "on" : ""}"></i>`).join("")}</div>`;
   let body = "";
 
@@ -927,7 +939,7 @@ function renderWizard() {
           <div class="qlist">${qt.checks.map((c) => `<div class="${c.ok ? "ok" : "bad"}"><span>${c.ok ? "✓" : "!"}</span>${c.ok ? c.okTxt : c.badTxt}</div>`).join("")}</div>
         </div>
       </div>
-      <div class="note">Система мгновенно проверит формулировку и сравнит с закрытыми идеями — до того, как идея попадёт к экипажу.</div>
+      <div class="note">Проверим формулировку и дубликаты — до экипажа.</div>
       <button class="btn primary block" id="wz-next" ${w.text.trim().length < 20 ? "disabled" : ""}>Далее →</button>`;
   } else if (w.step === 2) {
     const pi = computePiJS(w);
@@ -951,7 +963,7 @@ function renderWizard() {
       <div class="field">
         <label>Ранность: на каком % обучения виден признак — <output>${w.early_pct}%</output></label>
         <div class="slider-row"><input type="range" id="wz-early" min="0.5" max="10" step="0.5" value="${w.early_pct}"><output class="mono">${w.early_pct}%</output></div>
-        <div class="note">1% обучения → максимальный вес E=1.0, 10% и позже → 0. Раньше — ценнее.</div>
+        <div class="note">1% хода — максимум веса E; 10% и позже — ноль.</div>
       </div>
       <div class="field">
         <label>Оценка GPU-часов</label>
@@ -962,7 +974,7 @@ function renderWizard() {
         <div class="seg" style="margin-top:2px">
           ${[0, 1, 2, 3, 4, 5, 6].map((n) => `<button class="${w.signals === n ? "on" : ""}" data-act="wz-signals" data-v="${n}">${n}</button>`).join("")}
         </div>
-        <div class="note">Меньше 3 независимых — PI обнулится по сигналу S. Зависимые сигналы = один сигнал.</div>
+        <div class="note">Меньше 3 независимых — S=0; зависимые считаются одним.</div>
       </div>
       ${[["novelty", "Новизна (публикационный gap)", w.novelty], ["standard", "Шанс стать стандартом", w.standard], ["money", "Коммерческий потенциал", w.money], ["decidability", "Однозначность PASS/FAIL", w.decidability]].map(([k, lbl, v]) => `
         <div class="field">
@@ -995,7 +1007,7 @@ function renderWizard() {
       ${stepsBar}
       <div class="card-label" style="margin-top:0">Проверка на дубликаты и качество формулировки</div>
       <button class="btn primary block" id="wz-check" ${w.check ? "disabled" : ""}>${w.check ? "✓ Проверено" : "Проверить идею"}</button>
-      ${!w.check ? `<div class="note">Система сравнит текст с закрытыми идеями и очередью: дубликаты видны до GPU-часов.</div>` : `
+      ${!w.check ? `` : `
         ${w.check.matches.length ? w.check.matches.map((m) => `
           <div class="dup-row">
             <div class="dup-sim"><b class="mono" style="color:${m.sim > 0.45 ? "var(--err)" : m.sim > 0.25 ? "var(--warn)" : "var(--tx2)"}">${Math.round(m.sim * 100)}%</b><span>сходство</span></div>
@@ -1005,7 +1017,7 @@ function renderWizard() {
             </div>
           </div>`).join("") : `<div class="banner" style="background:var(--ok-soft);border:1px solid color-mix(in srgb,var(--ok) 40%,transparent);color:var(--ok)">✓ Прямых дублей нет — идея проходит в разбор экипажа</div>`}
         ${w.check.notes.length ? `<div class="qlist">${w.check.notes.map((n) => `<div class="bad"><span>!</span>${esc(n)}</div>`).join("")}</div>` : ""}
-        ${w.check.matches.some((m) => m.sim > 0.45) ? `<div class="banner warn">⚠ Похоже на дубль: экипаж, скорее всего, снимет идею до GPU. Стоит заострить отличие механизма.</div>` : ""}
+        ${w.check.matches.some((m) => m.sim > 0.45) ? `<div class="banner warn">${ICO.warn}<span>Похоже на дубль — экипаж снимет идею до GPU. Заостри отличие механизма.</span></div>` : ""}
       `}
       <div class="split">
         <button class="btn block" id="wz-back" data-act="wz-back">← Назад</button>
@@ -1020,7 +1032,7 @@ function renderWizard() {
       </div>
       <div style="text-align:center">
         <b style="font-size:17px">Карточка ${esc(r.hid)} создана</b>
-        <div class="note" style="margin-top:4px">Идея у экипажа: iВасёк завёл карточку, Морг готовит kill-проверки, ставки открыты.</div>
+        <div class="note" style="margin-top:4px">iВасёк завёл карточку, Морг готовит kill-проверки.</div>
       </div>
       <div class="kpi-grid">
         <div class="kpi"><b>${r.pi.toFixed(3)}</b><span>PI</span></div>
@@ -1117,7 +1129,7 @@ const SCREENS = { dash: screenDash, pipe: screenPipe, live: screenLive, crew: sc
 function renderScreen() {
   const scr = $("#screen");
   const keepScroll = window.scrollY;
-  scr.innerHTML = (S.offline ? `<div class="banner err"><span>⚠</span><span>Нет связи с лабораторией. Повтор попытки каждые 4 с.</span></div>` : "") + SCREENS[S.route]();
+  scr.innerHTML = (S.offline ? `<div class="banner err">${ICO.warn}<span>Нет связи с лабораторией · повтор каждые 4 с</span></div>` : "") + SCREENS[S.route]();
   scr.classList.toggle("offline-pad", S.offline);
   window.scrollTo(0, keepScroll);
   $$(".tab").forEach((t) => t.classList.toggle("on", t.dataset.nav === S.route));
