@@ -168,14 +168,14 @@ class TestCliUx(AuditBase):
 
 class TestAuditSuite(unittest.TestCase):
     def test_30_analyses_registered(self):
-        self.assertEqual(len(audit.ANALYSES), 35)
+        self.assertEqual(len(audit.ANALYSES), 80)
         ids = [a[0] for a in audit.ANALYSES]
-        self.assertEqual(len(set(ids)), 35)
+        self.assertEqual(len(set(ids)), 80)
 
     def test_run_all_green(self):
         report = audit.run_all(with_coverage=False)
         self.assertEqual(report["fails"], 0, report["top_errors"])
-        self.assertEqual(report["analyses"], 35)
+        self.assertEqual(report["analyses"], 80)
 
 
 if __name__ == "__main__":

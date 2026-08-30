@@ -87,7 +87,7 @@ sh install.sh
 to ~/.hermes/scripts/" — передай только имя файла, например `cron_dispatcher.sh`,
 и положи файл в `HERMES_HOME/scripts/`.
 
-Подробно: [docs/INSTALL-windows.md](docs/INSTALL-windows.md), [docs/INSTALL-macos.md](docs/INSTALL-macos.md), [docs/OPERATIONS.md](docs/OPERATIONS.md).
+Подробно: [docs/WINDOWS.md](docs/WINDOWS.md) — полный deep-research с нуля (80 анализов), [docs/INSTALL-windows.md](docs/INSTALL-windows.md), [docs/INSTALL-macos.md](docs/INSTALL-macos.md), [docs/OPERATIONS.md](docs/OPERATIONS.md).
 
 ## Запуск
 
