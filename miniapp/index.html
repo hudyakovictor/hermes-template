@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#05070e">
+<title>ИИ-лаборатория · researchagen</title>
+<!-- Telegram WebApp SDK: вне Telegram просто молча не грузится -->
+<script src="https://telegram.org/js/telegram-web-app.js" onerror="window.__tgFailed=true"></script>
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<div id="app">
+  <header id="topbar">
+    <div class="brand">
+      <div class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="23" height="23" fill="none">
+          <path d="M12 4.2v2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+          <circle cx="12" cy="3.4" r="1.2" stroke="currentColor" stroke-width="1.3"/>
+          <rect x="5" y="7" width="14" height="11.5" rx="4" stroke="currentColor" stroke-width="1.6"/>
+          <circle cx="9.3" cy="12" r="1.15" fill="currentColor"/>
+          <circle cx="14.7" cy="12" r="1.15" fill="currentColor"/>
+          <path d="M9.5 15.4h5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+          <path d="M5 10.4H3.4M5 14.6H3.4M19 10.4h1.6M19 14.6h1.6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" opacity=".7"/>
+        </svg>
+      </div>
+      <div class="brand-txt">
+        <div class="brand-name">ИИ Лаба</div>
+      </div>
+    </div>
+    <div class="top-right">
+      <div class="upd" id="upd">—</div>
+      <button class="top-add" id="top-add" data-act="wizard" aria-label="Подать идею" title="Подать идею">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <main id="screen" tabindex="-1"><!-- сюда рендерятся экраны --></main>
+
+  <nav id="tabbar" aria-label="Разделы">
+    <button class="tab" data-act="nav" data-nav="dash" id="tab-dash">
+      <svg viewBox="0 0 24 24" width="24" height="24" fill="none"><path d="M4 13h6V4H4v9zm0 7h6v-4H4v4zm10 0h6V11h-6v9zm0-16v4h6V4h-6z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>
+      <span>Пульт</span>
+    </button>
+    <button class="tab" data-act="nav" data-nav="pipe" id="tab-pipe">
+      <svg viewBox="0 0 24 24" width="24" height="24" fill="none"><path d="M4 5h16M7 12h10M10 19h4" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></svg>
+      <span>Конвейер</span>
+      <i class="tab-badge" id="badge-pipe" hidden></i>
+    </button>
+    <button class="tab" data-act="nav" data-nav="live" id="tab-live">
+      <svg viewBox="0 0 24 24" width="24" height="24" fill="none"><path d="M3 20h18M4.5 16.5 9 9l3.5 5L16 9l3.5 7.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <span>Графики</span>
+    </button>
+    <button class="tab" data-act="nav" data-nav="crew" id="tab-crew">
+      <svg viewBox="0 0 24 24" width="24" height="24" fill="none"><circle cx="9" cy="8.5" r="3.2" stroke="currentColor" stroke-width="1.7"/><path d="M3.5 19.5c.7-3 2.9-4.5 5.5-4.5s4.8 1.5 5.5 4.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><circle cx="16.8" cy="9.5" r="2.5" stroke="currentColor" stroke-width="1.6"/><path d="M16 15.2c2.3.2 4 1.5 4.5 3.8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+      <span>Экипаж</span>
+      <i class="tab-badge" id="badge-crew" hidden></i>
+    </button>
+    <button class="tab" data-act="nav" data-nav="verdicts" id="tab-verdicts">
+      <svg viewBox="0 0 24 24" width="24" height="24" fill="none"><path d="M6 3.5h12v10l-6 7-6-7v-10z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="m9 8.5 2 2 4-4.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <span>Вердикты</span>
+    </button>
+  </nav>
+
+  <button id="fab" hidden data-act="wizard" aria-label="Подать идею">
+    <svg viewBox="0 0 24 24" width="24" height="24" fill="none"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+  </button>
+
+  <div id="sheet-root"></div>
+  <div id="toast-root" aria-live="polite"></div>
+</div>
+
+<script src="js/charts.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>

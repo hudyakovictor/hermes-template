@@ -67,6 +67,11 @@ class IdeaFlowBase(unittest.TestCase):
         return [r["event"] for r in self.conn.execute(
             "SELECT event FROM crew_chat ORDER BY msg_id")]
 
+    def inbox_states(self) -> dict:
+        """Снять inbox можно только с патчем пути — иначе читается живой профиль."""
+        with mock.patch.object(inbox, "INBOX_PATH", self.inbox_path):
+            return {i["id"]: i["state"] for i in inbox._load()}
+
 
 class TestTimeline(IdeaFlowBase):
     """Один поток, шаги строго по таймлайну — как в реальной работе."""
@@ -115,7 +120,7 @@ class TestTimeline(IdeaFlowBase):
         self.assertIn("очеред", dup_q["reason"])
         self.assertIn("idea_dup", self.chat_events())
         # дубль не попадает в inbox — его не будут разбирать заново
-        states = {i["id"]: i["state"] for i in inbox._load()}
+        states = self.inbox_states()
         self.assertNotIn("IN-003", states)
 
         # ── ШАГ 6: дубль отклонённой идеи → причина отказа вспоминается

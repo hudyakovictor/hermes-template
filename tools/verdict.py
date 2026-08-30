@@ -15,9 +15,11 @@ CLI:
 
 from __future__ import annotations
 
+import os
 import sys
 
 import core
+import ideas
 import crew
 import governor
 import queue as q
@@ -114,6 +116,19 @@ def record(conn, hid: str, kind: str, actual=None, seeds_pass: int = 0,
     )
     conn.commit()
     q.set_status(conn, hid, KIND_STATUS[kind])
+    # память истории: гипотеза закрыта, сигналы карточки — нет. Заголовок
+    # получает вердикт теста (refuted/partial/confirmed), сигналы — reusable
+    # у непрошедших: они не опровергнуты и могут войти в будущие гипотезы.
+    try:
+        card = ""
+        if row["card_path"] and os.path.exists(row["card_path"]):
+            card = open(row["card_path"], encoding="utf-8").read()
+        ideas.bank_save(conn, hid, row["title"] or "", card,
+                        "refuted" if kind == "rejected" else kind,
+                        f"вердикт {kind}: факт {actual} при прогнозе "
+                        f"{row['forecast']}")
+    except Exception as exc:  # noqa: BLE001 — банк не роняет вердикт
+        core.append_log("signal_bank.log", f"verdict {hid}: {exc}")
     # A managed experiment is kept in governor/analyze until this explicit
     # parent verdict.  Only now may the research cron and paused workers be
     # admitted again; the report itself never promotes a hypothesis.

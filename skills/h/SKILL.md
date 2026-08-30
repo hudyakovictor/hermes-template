@@ -24,7 +24,7 @@ python tools/hypo.py new "..." --signals 3 --hours 4 --forecast 12
 | `scale_path` | Путь от игрушки до реального обучения |
 | `impact` | Сколько compute экономится и кому это выгодно |
 | `falsification` | Что именно обязано случиться, чтобы гипотеза считалась ложной |
-| `kill_checks` | 7 проверок, каждая с `passed: true/false` и обоснованием |
+| `kill_checks` | 8 проверок, каждая с `passed: true/false` и обоснованием |
 | `forecast` | Число ДО эксперимента. Менять потом — запрещено |
 
 ## 8 kill-проверок

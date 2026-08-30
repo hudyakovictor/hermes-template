@@ -480,3 +480,50 @@ class TestReplayAndStats(CrewBase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestCrewBalance(CrewBase):
+    """Ротация реплик: никто в экипаже не молчит (см. tools/crew_balance.py)."""
+
+    EVENTS = [
+        ("hypo_new", {"hid": "H-1", "forecast": 12, "signals": 4, "hours": 2}),
+        ("gate_pass", {"hid": "H-1", "passed": 8, "total": 8}),
+        ("gate_fail", {"hid": "H-1", "passed": 5, "total": 8, "hours": 3}),
+        ("launch", {"hid": "H-1", "level": "L0", "hours": 1}),
+        ("finish_ok", {"hid": "H-1", "seeds": 3, "hours": 1}),
+        ("verdict_confirmed", {"hid": "H-1", "actual": 11, "forecast": 12,
+                               "dev": 8, "bets_result": "ставки: 2 из 3"}),
+        ("verdict_rejected", {"hid": "H-2", "actual": 2, "forecast": 25,
+                              "dev": -92, "bets_result": "ставки: 1 из 4"}),
+        ("kill", {"hid": "H-2"}),
+        ("queue_empty", {"min": 3}),
+        ("budget_burn", {"burn": 18.0, "budget": 20}),
+        ("idea_intake", {"iid": "IN-1", "title": "ранняя остановка"}),
+        ("idea_rejected", {"iid": "IN-1", "reason": "сигналов меньше трёх"}),
+        ("review_forecast_drift", {"bias": 14}),
+        ("digest", {"open_findings": 2, "spent": 4.2}),
+    ]
+
+    def test_no_silent_agents_in_stream(self):
+        """Поток из ~40 событий: каждый агент ≥ 6% реплик, максимум ≤ 25%."""
+        counts = {a: 0 for a in crew.AGENTS}
+        for seed in (1, 2, 3):
+            rng = random.Random(seed)
+            for _ in range(14):
+                event, ctx = self.EVENTS[rng.randrange(len(self.EVENTS))]
+                res = crew.emit(event, ctx, conn=self.conn, force=True,
+                                config=CREW_CONFIG,
+                                rng=random.Random(rng.random()))
+                for line in res.get("lines") or []:
+                    if line.get("agent") in counts and line.get("event") != "nudge":
+                        counts[line["agent"]] += 1
+        total = sum(counts.values())
+        self.assertGreater(total, 150)
+        for agent, n in counts.items():
+            share = n / total
+            self.assertGreater(
+                share, 0.06,
+                f"{crew.AGENTS[agent]['name']} почти молчит: {share:.1%}")
+            self.assertLess(
+                share, 0.25,
+                f"{crew.AGENTS[agent]['name']} захватил эфир: {share:.1%}")

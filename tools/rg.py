@@ -26,6 +26,7 @@
 
 from __future__ import annotations
 
+import shutil
 import difflib
 import importlib
 import sys
@@ -44,6 +45,98 @@ import selfcheck
 import verdict as v
 
 USAGE = __doc__
+
+
+
+
+def boot_report(rest: list[str]) -> int:
+    """Старт контура одним вызовом: факты, самопроверка, что запустить.
+
+    Вызывается человеком (/start, /boot) и на первом сообщении сессии.
+    Детерминирован и бесплатен для модели: только чтение состояния и
+    подсказки. Автономию обеспечивают cron-задания и gateway, не этот отчёт.
+    """
+    as_json = core.wants_json(["rg.py", "boot"] + rest)
+    conn = core.db()
+    config = core.load_config()
+    st = report.status(conn, config)
+    doctor = selfcheck.run_all()
+    cron_ok = shutil.which("hermes") is not None
+    plat, debug = core.platform_mode(config)
+    paused = st.get("paused")
+    data = {
+        "ok": (not paused) and bool(doctor.get("ok")),
+        "paused": bool(paused),
+        "doctor": {"ok": doctor.get("ok"), "fails": doctor.get("fails"),
+                   "warns": doctor.get("warns")},
+        "autonomy": {
+            "cron_cli": cron_ok,
+            "cron_note": ("hermes найден: диспетчер (*/2 мин) и research-loop (*/25 мин) "
+                          "должны стоять в `hermes cron list`; если нет — перезапусти "
+                          "install.sh (блок cron)" if cron_ok else
+                          "hermes не в PATH: cron не зарегистрирован, контур не автономен. "
+                          "Запусти установщик или добавь задания из cron/ вручную"),
+            "gateway_note": "управление в Telegram живёт только при запущенном "
+                            "`researchagen gateway start`",
+            "platform_note": (
+                "Windows: hermes cron нет — задания ставятся в планировщик задач, "
+                "готовые команды в docs/OPERATIONS.md (раздел «Автономия на Windows»)"
+                if plat == "windows" else
+                "macOS: контур отладочный, эксперименты идут как dry-run; GPU-обучение — "
+                "на Windows-узле" if plat == "macos" else
+                ""),
+        },
+        "status": st,
+        "first_actions": (
+            ["/resume — вернуть автозапуск"] if paused else []
+        ) + [
+            "python tools/rg.py tick — один тик диспетчера прямо сейчас",
+            "python tools/rg.py status — полная картина",
+        ],
+    }
+    if as_json:
+        core.emit(data, True)
+        return 0
+    # человек читает текст: короткий стартовый отчёт, а не одна строка
+    q = st.get("planned") or []
+    run = st.get("running") or []
+    ver = (st.get("calibration") or {}).get("verdicts")
+    doc = ("чисто" if doctor.get("ok")
+           else "провалов %s, предупреждений %s — детали: python tools/rg.py doctor"
+           % (doctor.get("fails"), doctor.get("warns")))
+    print("boot: %s" % ("пауза — /resume вернёт автозапуск" if paused else "контур активен"))
+    print("  доктор: %s" % doc)
+    print("  очередь: %d гипотез в плане, на GPU: %d%s"
+          % (len(q), len(run), (", вердиктов закрыто: %s" % ver) if ver else ""))
+    gpu = (st.get("gpu") or {})
+    if not gpu.get("available"):
+        print("  GPU: недоступен (нужно %s ГБ) — пульт, очередь и экипаж работают"
+              % gpu.get("required_gb"))
+    print("  автономия: %s" % data["autonomy"]["cron_note"])
+    if data["autonomy"].get("platform_note"):
+        print("  платформа: %s" % data["autonomy"]["platform_note"])
+    for a in data["first_actions"]:
+        print("  → %s" % a)
+    return 0
+
+
+def _signals_route(rest: list[str]) -> int:
+    """Сигнал-банк: что из истории проверено, что живо для новых гипотез."""
+    as_json = core.wants_json(["rg.py", "signals"] + rest)
+    conn = core.db()
+    items = importlib.import_module("ideas").signal_bank_list(conn)
+    if as_json:
+        core.emit(items, True)
+        return 0
+    if not items:
+        print("банк сигналов пуст: записи появляются с вердиктами и снятиями")
+        return 0
+    outcome_ru = {"confirmed": "подтверждён", "refuted": "опровергнут",
+                  "partial": "частично", "reusable": "жив (переиспользуем)"}
+    rows = [[i["hid"], outcome_ru.get(i["outcome"], i["outcome"]),
+             (i["claim"] or "")[:60]] for i in items]
+    print(core.table(rows, ["источник", "статус", "сигнал"]))
+    return 0
 
 
 def main(argv: list[str]) -> int:
@@ -90,6 +183,8 @@ def main(argv: list[str]) -> int:
             [argv[0], "submit"] + argv[2:]),
         "ideas": lambda: importlib.import_module("ideas").main(
             [argv[0], "log"] + argv[2:]),
+        "signals": lambda: _signals_route(
+            [argv[0]] + argv[2:]),
         "triage": lambda: importlib.import_module("ideas").main(
             [argv[0], "triage"] + argv[2:]),
         "hygiene": lambda: importlib.import_module("hygiene").main(
@@ -100,6 +195,7 @@ def main(argv: list[str]) -> int:
             [argv[0]] + argv[2:]),
         "board": lambda: importlib.import_module("board").main(
             [argv[0], "show"] + argv[2:]),
+        "boot": lambda: boot_report(argv[2:]),
     }
     if cmd in ("help", "-h", "--help"):
         print(USAGE)

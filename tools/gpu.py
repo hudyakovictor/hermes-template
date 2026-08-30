@@ -13,6 +13,7 @@ CLI:
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 import sys
@@ -22,8 +23,17 @@ import core
 QUERY = "name,memory.total,memory.used,memory.free,utilization.gpu,temperature.gpu"
 
 
+WIN_NVIDIA_SMI = (
+    r"C:\\Windows\\System32\\nvidia-smi.exe",
+    r"C:\\Program Files\\NVIDIA Corporation\\NVSMI\\nvidia-smi.exe",
+)
+
+
 def read_nvidia_smi() -> list[dict]:
     exe = shutil.which("nvidia-smi")
+    if not exe and os.name == "nt":
+        # на Windows служба драйвера не всегда добавляет nvidia-smi в PATH
+        exe = next((p for p in WIN_NVIDIA_SMI if os.path.exists(p)), None)
     if not exe:
         return []
     try:

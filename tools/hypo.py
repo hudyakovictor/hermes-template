@@ -376,6 +376,20 @@ def main(argv: list[str]) -> int:
         q.set_status(conn, hid, "killed")
         q.update_fields(conn, hid, notes=f"killed: {reason}")
         core.log_event(conn, "hypo.killed", hid, reason=reason, lesson=lesson)
+        # снята до GPU — сигналы не опровергнуты: остаются в банке для будущих
+        # гипотез (двусторонняя память: не потерять сырье вместе с идеей)
+        try:
+            import ideas as _ideas
+            card = ""
+            if os.path.exists(card_path(hid)):
+                card = open(card_path(hid), encoding="utf-8").read()
+            row = conn.execute("SELECT title FROM hypotheses WHERE id=?",
+                               (hid,)).fetchone()
+            _ideas.bank_save(conn, hid, (row or {"title": hid})["title"] or "",
+                             card, "reusable",
+                             f"снята до GPU: {reason}")
+        except Exception as exc:  # noqa: BLE001 — банк не роняет kill
+            core.append_log("signal_bank.log", f"kill {hid}: {exc}")
         with open(os.path.join(core.MEMORY_DIR, "killed.md"), "a", encoding="utf-8") as fh:
             fh.write(f"- {core.iso()} {hid}: {reason} | урок: {lesson}\n")
         crew.safe_emit("kill", conn=conn, ctx={"hid": hid, "reason": reason})
