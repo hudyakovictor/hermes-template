@@ -287,6 +287,9 @@ def main(argv: list[str]) -> int:
     core.load_env()
     as_json = core.wants_json(argv)
     cmd = argv[1] if len(argv) > 1 else "help"
+    if cmd in ("help", "-h", "--help"):
+        print(__doc__)
+        return 0
     conn = core.db()
 
     if cmd == "new":

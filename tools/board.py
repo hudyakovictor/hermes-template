@@ -52,7 +52,8 @@ def run_hermes(args: list[str]) -> tuple[bool, str]:
         return False, "CLI hermes не найден в PATH"
     try:
         proc = subprocess.run([binary] + args, capture_output=True, text=True,
-                              timeout=60, check=False, cwd=core.ROOT)
+                              encoding="utf-8", errors="replace", timeout=60,
+                              check=False, cwd=core.ROOT)
         return proc.returncode == 0, (proc.stdout or proc.stderr).strip()
     except (OSError, subprocess.TimeoutExpired) as exc:
         return False, str(exc)

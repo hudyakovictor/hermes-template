@@ -103,7 +103,7 @@ def main(argv: list[str]) -> int:
     core.load_env()
     as_json = core.wants_json(argv)
     cmd = argv[1] if len(argv) > 1 else "show"
-    if cmd == "show":
+    if cmd == "show" or cmd == "snapshot":
         snap = snapshot()
         if snap["gpus"]:
             text = core.table(

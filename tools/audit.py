@@ -1437,7 +1437,11 @@ def a57() -> list[dict]:
         import core as _core
         cfg = _core.load_config(os.path.join(home, "config.yaml"))
         need = _core.cfg("researchagen.limits.gpu_free_gb_required", None, cfg)
-        if need is None or float(need) < 10:
+        if need is None:
+            # шаблон с плейсхолдером <<INSTALLER_GPU_FREE_GB>> — установщик ещё
+            # не запускали, числовая проверка неприменима (дефолт документа: 20)
+            return []
+        if float(need) < 10:
             return [f(FAIL, f"gpu_free_gb_required={need} <10")]
         return []
     finally:

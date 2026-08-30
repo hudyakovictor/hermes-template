@@ -178,14 +178,14 @@ database:
 researchagen:
   platform: <<INSTALLER_PLATFORM>>              # windows | macos | linux
   mode: <<INSTALLER_MODE>>                      # production | debug
-  autolaunch: true                             # R4: автозапуск экспериментов
+  autolaunch: <<INSTALLER_AUTOLAUNCH>>          # R4: автозапуск экспериментов
   limits:
-    approval_gpu_hours: 12                     # R7: дороже — только с /approve
+    approval_gpu_hours: <<INSTALLER_APPROVAL_GPU_HOURS>>   # R7: дороже — только с /approve
     min_live_hypotheses: 3                     # R2
     preempt_ratio: 2.0                         # R6
-    gpu_free_gb_required: 20                   # минимум свободной VRAM для L1+
+    gpu_free_gb_required: <<INSTALLER_GPU_FREE_GB>>   # минимум свободной VRAM для L1+
     max_parallel_experiments: 1                # GPU — один ресурс
-    daily_gpu_hours_budget: 20
+    daily_gpu_hours_budget: <<INSTALLER_DAILY_GPU_HOURS>>
   # Autonomous admission around native delegate_task/Kanban workers.
   # research_worker_vram_gb and thresholds are conservative starting points;
   # calibrate them with a live Qwen/GPU benchmark before raising the cap.

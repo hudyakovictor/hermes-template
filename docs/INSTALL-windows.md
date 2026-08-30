@@ -33,6 +33,19 @@ ollama run qwen3:27b "привет"   # проверка, что веса жив
 
 По умолчанию установщик теперь в быстром режиме: спрашивает **только** токен и API, остальное авто.
 
+> **Уже есть готовый `.env`?** (например, владелец прислал блок `Set-Content`) — установщик
+> подхватит его и **не задаст ни одного вопроса**, включая режим `-NonInteractive`.
+> Чужие строки в `.env` (`OPENROUTER_API_KEY` и т.п.) при перезаписи сохраняются.
+
+**Варианты запуска для друга (без навыков):**
+
+- Одна строка в PowerShell (скачивает проект, подхватывает `.env`, ставит без вопросов):
+  ```powershell
+  powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/<ваш-логин>/researchagen/main/setup.ps1 | iex"
+  ```
+- Двойной клик по `setup.bat` в папке проекта (вопросы только если нет `.env`).
+- Двойной клик по `start.bat` — запуск `researchagen gateway start` без набора команд.
+
 ```powershell
 git clone https://github.com/<ваш-логин>/researchagen
 cd researchagen
@@ -42,7 +55,7 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1
 #   RESEARCHAGEN_MODEL_BASE_URL [http://localhost:11434/v1] — Enter = локальная Ollama
 #   RESEARCHAGEN_MODEL_NAME [qwen3:27b]
 #   RESEARCHAGEN_MODEL_API_KEY [ollama]
-# остальное авто: platform windows, mode production, 2/1, лимиты 6/8/6, chat_id/user_id из getUpdates
+# остальное авто: platform windows, mode production, 2/1, лимиты 20/20/12, chat_id/user_id из getUpdates
 
 # полностью неинтерактивно:
 powershell -ExecutionPolicy Bypass -File .\install.ps1 -BotToken "123:abc" -ModelBase "http://localhost:11434/v1" -NonInteractive
@@ -91,7 +104,7 @@ researchagen gateway start
 
 ```powershell
 cd $env:USERPROFILE\.hermes\profiles\researchagen
-python tools\gpu.py snapshot
+python tools\gpu.py show
 # → RTX 5090: свободно 22 GB (a59), парсит nvidia-smi через WIN_NVIDIA_SMI пути (a58)
 python tools\rg.py status
 python tools\selfcheck.py all
