@@ -78,34 +78,86 @@ def check_isolation() -> list[dict]:
     — это WARN, а не FAIL: она не ломает контур, но требует ручного контроля
     «один gateway активен». FAIL только для корневого профиля (default), где
     два gateway на одной машине гарантированно рвут long-polling.
+
+    Учитывает кривой HERMES_HOME: если он указывает на профиль
+    (.../.hermes/profiles/researchagen), то реальный дом — .../.hermes,
+    и проверяем оба места, исключая собственный .env.
     """
     env = core.load_env()
     token = env.get("TELEGRAM_BOT_TOKEN", "")
     out = []
-    home = os.environ.get("HERMES_HOME") or os.path.expanduser("~/.hermes")
-    profiles_dir = os.path.join(home, "profiles")
+    raw_home = os.environ.get("HERMES_HOME") or os.path.expanduser("~/.hermes")
+    # набор домов для проверки: глобальный ~/.hermes + то, что в HERMES_HOME + вывод из RESEARCHAGEN_HOME
+    homes = set()
+    homes.add(os.path.expanduser("~/.hermes"))
+    homes.add(raw_home)
+    # если HERMES_HOME указывает внутрь profiles/, то реальный дом — до /profiles/
+    if "/profiles/" in raw_home.replace("\\", "/"):
+        # /.../.hermes/profiles/researchagen -> /.../.hermes
+        parts = raw_home.replace("\\", "/").split("/profiles/")
+        if parts[0]:
+            homes.add(parts[0])
+    # RESEARCHAGEN_HOME (core.ROOT) тоже может подсказать реальный дом
+    try:
+        root = core.ROOT
+        if "/profiles/" in root.replace("\\", "/"):
+            parts = root.replace("\\", "/").split("/profiles/")
+            if parts[0]:
+                homes.add(parts[0])
+    except Exception:
+        pass
+
     clashes = []
     root_clash = False
-    if token and os.path.isdir(profiles_dir):
-        for entry in os.listdir(profiles_dir):
-            other = os.path.join(profiles_dir, entry, ".env")
-            if not os.path.exists(other) or os.path.abspath(other) == os.path.abspath(core.ENV_PATH):
+    seen_envs = set()
+    own_env = os.path.abspath(core.ENV_PATH)
+
+    if token:
+        for h in homes:
+            if not h or not os.path.isdir(h):
                 continue
-            try:
-                with open(other, "r", encoding="utf-8", errors="replace") as fh:
-                    if token in fh.read():
-                        clashes.append(entry)
-            except OSError:
+            profiles_dir = os.path.join(h, "profiles")
+            if os.path.isdir(profiles_dir):
+                try:
+                    for entry in os.listdir(profiles_dir):
+                        other = os.path.join(profiles_dir, entry, ".env")
+                        abs_other = os.path.abspath(other)
+                        if abs_other in seen_envs or abs_other == own_env:
+                            continue
+                        if not os.path.exists(other):
+                            continue
+                        seen_envs.add(abs_other)
+                        try:
+                            with open(other, "r", encoding="utf-8", errors="replace") as fh:
+                                if token in fh.read():
+                                    # если это наш собственный профиль, не считаем
+                                    if entry == os.path.basename(core.ROOT):
+                                        continue
+                                    clashes.append(entry)
+                        except OSError:
+                            continue
+                except OSError:
+                    pass
+            # корневой .env в этом доме
+            root_env = os.path.join(h, ".env")
+            abs_root = os.path.abspath(root_env)
+            if abs_root in seen_envs or abs_root == own_env:
                 continue
-    root_env = os.path.join(home, ".env")
-    if token and os.path.exists(root_env):
-        try:
-            with open(root_env, "r", encoding="utf-8", errors="replace") as fh:
-                if token in fh.read():
-                    clashes.append("default (корневой профиль)")
-                    root_clash = True
-        except OSError:
-            pass
+            if os.path.exists(root_env):
+                seen_envs.add(abs_root)
+                try:
+                    with open(root_env, "r", encoding="utf-8", errors="replace") as fh:
+                        if token in fh.read():
+                            # если root_env — это наш собственный .env (когда HERMES_HOME=профиль), не считаем
+                            if abs_root == own_env:
+                                continue
+                            clashes.append("default (корневой профиль)")
+                            root_clash = True
+                except OSError:
+                    pass
+
+    # дедупликация имён
+    clashes = sorted(set(clashes))
     if root_clash:
         state = FAIL
         detail = f"тот же токен в: {', '.join(clashes)} — второй gateway не запустится (корневой конфликт)"
@@ -117,7 +169,7 @@ def check_isolation() -> list[dict]:
         state = OK
         detail = "токен уникален среди профилей"
     out.append(_check("изоляция токена", state, detail))
-    out.append(_check("HERMES_HOME", OK, home))
+    out.append(_check("HERMES_HOME", OK, raw_home))
     return out
 
 
