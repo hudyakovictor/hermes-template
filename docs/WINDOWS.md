@@ -71,7 +71,7 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1
 #   RESEARCHAGEN_MODEL_BASE_URL [http://localhost:11434/v1] (Enter = Ollama)
 #   RESEARCHAGEN_MODEL_NAME [qwen3:27b]
 #   RESEARCHAGEN_MODEL_API_KEY [ollama]
-# остальное: platform=windows, mode=production, лимиты 6/8/6 авто,
+# остальное: platform=windows, mode=production, лимиты 20/20/12 авто,
 # chat_id/user_id пытается взять из getUpdates (напиши боту /start заранее)
 
 # неинтерактивно (только токен и API):
@@ -116,7 +116,7 @@ Cron:
 
 ```powershell
 cd $env:USERPROFILE\.hermes\profiles\researchagen
-python tools\gpu.py snapshot
+python tools\gpu.py show
 # → RTX 5090: свободно 22 GB (мок в тестах a59)
 # на реальном железе: парсит nvidia-smi, пути WIN_NVIDIA_SMI (a58)
 

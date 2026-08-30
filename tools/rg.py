@@ -156,6 +156,7 @@ def main(argv: list[str]) -> int:
         "add": lambda: hypo.main([argv[0], "new"] + argv[2:]),
         "check": lambda: hypo.main([argv[0], "check"] + argv[2:]),
         "kill": lambda: hypo.main([argv[0], "kill"] + argv[2:]),
+        "hypo": lambda: hypo.main([argv[0]] + argv[2:]),
         "tick": lambda: dispatch.main([argv[0], "tick"] + argv[2:]),
         "launch": lambda: dispatch.main([argv[0], "launch"] + argv[2:]),
         "finish": lambda: dispatch.main([argv[0], "finish"] + argv[2:]),

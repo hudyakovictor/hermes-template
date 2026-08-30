@@ -1,6 +1,7 @@
 #!/bin/sh
 # researchagen — установщик для macOS / Linux.
 # Быстрый режим (по умолчанию): только токен и API, остальное авто.
+# Если .env уже существует — установщик подхватывает его и НЕ задаёт вопросов.
 # Полный режим: sh install.sh --full
 # Только POSIX sh + Python stdlib.
 
@@ -22,11 +23,13 @@ BOT_TOKEN_ARG=""
 MODEL_BASE_ARG=""
 MODEL_NAME_ARG=""
 MODEL_KEY_ARG=""
+NONINTERACTIVE=0
 
 INPLACE=0
 for arg in "$@"; do
   case "$arg" in
     --full) FULL=1 ;;
+    --non-interactive) NONINTERACTIVE=1 ;;
     --in-place) INPLACE=1 ;;
     --token=*) BOT_TOKEN_ARG="${arg#--token=}" ;;
     --model-base=*) MODEL_BASE_ARG="${arg#--model-base=}" ;;
@@ -48,10 +51,12 @@ bad() { say "  ${RED}FAIL${OFF} $1"; }
 
 ask() {
 	_p="$1"; _d="$2"
+	# ВАЖНО: промпт печатаем в stderr, чтобы command substitution
+	# вернул ТОЛЬКО ответ пользователя, а не "Поле: ответ".
 	if [ -n "$_d" ]; then
-		printf '%s %s[%s]%s: ' "$_p" "$DIM" "$_d" "$OFF"
+		printf '%s %s[%s]%s: ' "$_p" "$DIM" "$_d" "$OFF" >&2
 	else
-		printf '%s: ' "$_p"
+		printf '%s: ' "$_p" >&2
 	fi
 	IFS= read -r _a || _a=""
 	if [ -z "$_a" ]; then _a="$_d"; fi
@@ -62,6 +67,12 @@ ask_req() {
 	while :; do
 		_v="$(ask "$1" "")"
 		if [ -n "$_v" ]; then printf '%s' "$_v"; return 0; fi
+		# закрытый stdin или явный неинтерактивный режим — не зацикливаемся
+		if [ "$NONINTERACTIVE" = "1" ] || [ ! -t 0 ]; then
+			say "  ${RED}Нет ввода: поле \"$1\" обязательно.${OFF}"
+			say "  ${DIM}Передайте --token=... или создайте .env заранее, затем повторите.${OFF}"
+			exit 1
+		fi
 		say "  ${RED}Поле обязательное.${OFF}"
 	done
 }
@@ -116,11 +127,15 @@ fi
 
 DEFAULT_ROOT="${HERMES_HOME:-$HOME/.hermes}"
 HERMES_ROOT="$DEFAULT_ROOT"
-TARGET="$HERMES_ROOT/profiles/$PROFILE_NAME"
+if [ "$INPLACE" = "1" ]; then
+  TARGET="$SRC_DIR"
+else
+  TARGET="$HERMES_ROOT/profiles/$PROFILE_NAME"
+fi
 
-GPU_FREE="6"
-DAILY_BUDGET="8"
-APPROVAL="6"
+GPU_FREE="20"
+DAILY_BUDGET="20"
+APPROVAL="12"
 AUTOLAUNCH_VAL="true"
 
 MODEL_BASE="${MODEL_BASE_ARG:-http://localhost:11434/v1}"
@@ -134,6 +149,42 @@ TG_AICHAT_THREAD=""
 TG_USER1=""
 TG_USER2=""
 TG_USERS=""
+TG_USERS_ENV=""
+MODEL_FROM_ENV=0
+
+# Читает готовый .env (владелец мог прислать блок команд) — значения подхватываются,
+# вопросы не задаются. Приоритет: аргументы CLI > .env > вопросы > дефолты.
+read_env() {
+	_p="$1"
+	[ -f "$_p" ] || return 0
+	while IFS= read -r _l; do
+		case "$_l" in
+			''|\#*) continue ;;
+		esac
+		_k="${_l%%=*}"
+		_v="${_l#*=}"
+		case "$_k" in
+			TELEGRAM_BOT_TOKEN) [ -z "$TG_TOKEN" ] && TG_TOKEN="$_v" ;;
+			TELEGRAM_HOME_CHANNEL) [ -z "$TG_CHAT" ] && TG_CHAT="$_v" ;;
+			TELEGRAM_CRON_THREAD_ID) [ -z "$TG_THREAD" ] && TG_THREAD="$_v" ;;
+			TELEGRAM_AICHAT_THREAD_ID) [ -z "$TG_AICHAT_THREAD" ] && TG_AICHAT_THREAD="$_v" ;;
+			TELEGRAM_ALLOWED_USERS)
+				TG_USERS_ENV="$_v"
+				TG_USER1="${_v%%,*}"
+				case "$_v" in *,*) TG_USER2="${_v#*,}" ;; esac
+				;;
+			RESEARCHAGEN_MODEL_BASE_URL) [ -z "$MODEL_BASE_ARG" ] && { MODEL_BASE="$_v"; MODEL_FROM_ENV=1; } ;;
+			RESEARCHAGEN_MODEL_NAME) [ -z "$MODEL_NAME_ARG" ] && MODEL_NAME="$_v" ;;
+			RESEARCHAGEN_MODEL_API_KEY) [ -z "$MODEL_KEY_ARG" ] && MODEL_KEY="$_v" ;;
+		esac
+	done < "$_p"
+}
+
+# Подхват готового .env (в quick-режиме дальше вопросов не будет)
+read_env "$TARGET/.env"
+if [ "$FULL" = "0" ] && { [ -n "$TG_TOKEN" ] || [ "$MODEL_FROM_ENV" = "1" ]; }; then
+	ok "Готовый .env найден — настройки подхвачены, вопросов не будет"
+fi
 
 # Функция авто-определения chat_id через getUpdates (curl если есть)
 get_tg_auto() {
@@ -169,7 +220,9 @@ if [ "$FULL" = "1" ]; then
   say ""
   say "${BOLD}Шаг 2/6 — куда ставим${OFF}"
   HERMES_ROOT="$(ask "Корень Hermes" "$DEFAULT_ROOT")"
-  TARGET="$HERMES_ROOT/profiles/$PROFILE_NAME"
+  if [ "$INPLACE" != "1" ]; then
+    TARGET="$HERMES_ROOT/profiles/$PROFILE_NAME"
+  fi
   say "  Профиль: ${CYAN}$TARGET${OFF}"
   if [ -d "$TARGET" ]; then warn "Каталог уже существует — код обновится, .env и база сохранены"; fi
 
@@ -209,30 +262,38 @@ else
   say "  Остальное — чат, пользователи, лимиты — определится авто."
   if [ -z "$TG_TOKEN" ]; then
     TG_TOKEN="$(ask_req "TELEGRAM_BOT_TOKEN")"
+  else
+    ok "Токен уже задан (аргумент или готовый .env) — вопрос пропущен"
   fi
   case "$TG_TOKEN" in *:*) : ;; *) warn "Токен без двоеточия выглядит неверно" ;; esac
 
-  say "${DIM}  Пытаюсь авто-определить chat_id через getUpdates (напиши боту /start заранее)...${OFF}"
-  if AUTO_OUT=$(get_tg_auto "$TG_TOKEN"); then
-    TG_CHAT=$(printf '%s' "$AUTO_OUT" | awk '{print $1}')
-    TG_USER1=$(printf '%s' "$AUTO_OUT" | awk '{print $2}')
-    if [ -n "$TG_CHAT" ]; then ok "Авто chat_id: $TG_CHAT"; fi
-    if [ -n "$TG_USER1" ]; then ok "Авто user_id: $TG_USER1"; fi
-  else
-    warn "chat_id не удалось авто-определить — будет запрошен ботом после запуска"
-    say "${DIM}  После запуска напиши боту /start, затем /status — бот подскажет chat_id${OFF}"
+  if [ -z "$TG_CHAT" ] || [ -z "$TG_USER1" ]; then
+    say "${DIM}  Пытаюсь авто-определить chat_id через getUpdates (напиши боту /start заранее)...${OFF}"
+    if AUTO_OUT=$(get_tg_auto "$TG_TOKEN"); then
+      _ac=$(printf '%s' "$AUTO_OUT" | awk '{print $1}')
+      _au=$(printf '%s' "$AUTO_OUT" | awk '{print $2}')
+      if [ -n "$_ac" ] && [ -z "$TG_CHAT" ]; then TG_CHAT="$_ac"; ok "Авто chat_id: $_ac"; fi
+      if [ -n "$_au" ] && [ -z "$TG_USER1" ]; then TG_USER1="$_au"; ok "Авто user_id: $_au"; fi
+    else
+      warn "chat_id не удалось авто-определить — будет запрошен ботом после запуска"
+      say "${DIM}  После запуска напиши боту /start, затем /status — бот подскажет chat_id${OFF}"
+    fi
   fi
 
   if [ -z "$TG_CHAT" ]; then TG_CHAT="0"; fi
   if [ -z "$TG_USER1" ]; then TG_USER1="0"; fi
-  TG_USERS="$TG_USER1"
+  if [ -n "$TG_USERS_ENV" ]; then TG_USERS="$TG_USERS_ENV"; else TG_USERS="$TG_USER1"; fi
 
-  say ""
-  say "  Модель API (Ollama по умолчанию, Enter = пропустить)"
-  say "${DIM}  Если используешь Ollama локально: просто Enter.${OFF}"
-  _mb="$(ask "RESEARCHAGEN_MODEL_BASE_URL" "$MODEL_BASE")"; MODEL_BASE="$_mb"
-  _mn="$(ask "RESEARCHAGEN_MODEL_NAME" "$MODEL_NAME")"; MODEL_NAME="$_mn"
-  _mk="$(ask "RESEARCHAGEN_MODEL_API_KEY (Enter = ollama)" "$MODEL_KEY")"; MODEL_KEY="$_mk"
+  if [ "$MODEL_FROM_ENV" = "1" ]; then
+    ok "Модель уже задана в .env: $MODEL_NAME @ $MODEL_BASE"
+  else
+    say ""
+    say "  Модель API (Ollama по умолчанию, Enter = пропустить)"
+    say "${DIM}  Если используешь Ollama локально: просто Enter.${OFF}"
+    _mb="$(ask "RESEARCHAGEN_MODEL_BASE_URL" "$MODEL_BASE")"; MODEL_BASE="$_mb"
+    _mn="$(ask "RESEARCHAGEN_MODEL_NAME" "$MODEL_NAME")"; MODEL_NAME="$_mn"
+    _mk="$(ask "RESEARCHAGEN_MODEL_API_KEY (Enter = ollama)" "$MODEL_KEY")"; MODEL_KEY="$_mk"
+  fi
 
   say "  Профиль: ${CYAN}$TARGET${OFF}"
   if [ -d "$TARGET" ]; then warn "Каталог уже существует — обновится"; fi
@@ -252,8 +313,12 @@ say "  Модель       : $MODEL_NAME @ $MODEL_BASE"
 say "  Лимиты      : VRAM ≥ ${GPU_FREE} ГБ, бюджет ${DAILY_BUDGET} ч/сут, подтверждение > ${APPROVAL} ч"
 say "  Автозапуск  : $AUTOLAUNCH_VAL"
 hr
-GO="$(ask "Продолжить? (y/n)" "y")"
-case "$GO" in n|N|no|NO) say "Отменено."; exit 0 ;; esac
+if [ "$NONINTERACTIVE" = "1" ]; then
+	GO="y"
+else
+	GO="$(ask "Продолжить? (y/n)" "y")"
+	case "$GO" in n|N|no|NO) say "Отменено."; exit 0 ;; esac
+fi
 
 # ------------------------------------------------------------------ 6. Установка
 say ""
@@ -303,18 +368,46 @@ ok "config.yaml настроен"
 
 if [ -f "$TARGET/.env" ]; then cp "$TARGET/.env" "$TARGET/.env.bak"; warn "Старый .env сохранён как .env.bak"; fi
 umask 077
-{
-	printf '%s\n' "# researchagen — секреты профиля. Не коммитить."
-	printf 'TELEGRAM_BOT_TOKEN=%s\n' "$TG_TOKEN"
-	printf 'TELEGRAM_HOME_CHANNEL=%s\n' "$TG_CHAT"
-	printf 'TELEGRAM_CRON_THREAD_ID=%s\n' "$TG_THREAD"
-	printf 'TELEGRAM_AICHAT_THREAD_ID=%s\n' "$TG_AICHAT_THREAD"
-	printf 'TELEGRAM_ALLOWED_USERS=%s\n' "$TG_USERS"
-	printf 'RESEARCHAGEN_MODEL_BASE_URL=%s\n' "$MODEL_BASE"
-	printf 'RESEARCHAGEN_MODEL_NAME=%s\n' "$MODEL_NAME"
-	printf 'RESEARCHAGEN_MODEL_API_KEY=%s\n' "$MODEL_KEY"
-	printf 'RESEARCHAGEN_HOME=%s\n' "$TARGET"
-} > "$TARGET/.env"
+# Обновляем .env через Python: чужие строки (OPENROUTER_API_KEY и т.п.) сохраняются
+"$PY" - "$TARGET/.env" "$TG_TOKEN" "$TG_CHAT" "$TG_THREAD" "$TG_AICHAT_THREAD" "$TG_USERS" "$MODEL_BASE" "$MODEL_NAME" "$MODEL_KEY" "$TARGET" <<'PYEOF'
+import sys
+path, token, chat, thread, aichat, users, base, name, key, home = sys.argv[1:11]
+values = {
+    "TELEGRAM_BOT_TOKEN": token,
+    "TELEGRAM_HOME_CHANNEL": chat,
+    "TELEGRAM_CRON_THREAD_ID": thread,
+    "TELEGRAM_AICHAT_THREAD_ID": aichat,
+    "TELEGRAM_ALLOWED_USERS": users,
+    "RESEARCHAGEN_MODEL_BASE_URL": base,
+    "RESEARCHAGEN_MODEL_NAME": name,
+    "RESEARCHAGEN_MODEL_API_KEY": key,
+    "RESEARCHAGEN_HOME": home,
+}
+lines = []
+try:
+    lines = open(path, encoding="utf-8").read().splitlines()
+except FileNotFoundError:
+    pass
+out, seen = [], set()
+for line in lines:
+    t = line.strip()
+    if not t or t.startswith("#") or "=" not in t:
+        out.append(line)
+        continue
+    k, _, v = t.partition("=")
+    k = k.strip()
+    if k in values:
+        out.append("%s=%s" % (k, values[k]))
+        seen.add(k)
+    else:
+        out.append(line)
+if not out:
+    out.append("# researchagen — секреты профиля. Не коммитить.")
+for k, v in values.items():
+    if k not in seen:
+        out.append("%s=%s" % (k, v))
+open(path, "w", encoding="utf-8").write("\n".join(out) + "\n")
+PYEOF
 chmod 600 "$TARGET/.env" 2>/dev/null
 ok ".env записан (права 600)"
 

@@ -1,188 +1,160 @@
 # researchagen
 
 Автономный исследовательский профиль для [agent-hermes](https://github.com/NousResearch/hermes-agent).
-Ищет и доказывает скрытые механизмы в training dynamics: можно ли выделить полезную
-логику раньше и дешевле, чем при полном обучении, отделив её от паразитной памяти
-и шумового переобучения.
+Ставится рядом с вашим основным агентом и **не трогает его**: свой каталог, свой
+Telegram-бот, своя модель, свой терминал.
 
-Это **второй профиль**, который ставится рядом с вашим основным агентом и никак его не
-трогает: свой каталог, свой Telegram-токен, своя модель, свой терминал.
+Установка — на Windows, в несколько минут. Дальше всё работает само: агент
+создаёт субагентов, они разбирают миссию из `MISSION.md` и строят гипотезы,
+а диспетчер сам запускает эксперименты на GPU и присылает вердикты в Telegram.
 
-## Зачем он вообще нужен
+---
 
-На одной RTX 5090 главный дефицит — не идеи, а GPU-часы. Поэтому весь контур
-построен вокруг одного числа — **PPI = ценность гипотезы на GPU-час** — и вокруг привычки
-убивать гипотезу до того, как она потратит часы. Убитая за десять минут идея здесь
-считается успешным результатом, а не неудачей.
+## Как это работает (коротко)
 
-## Ключевые свойства
-
-| Свойство | Как сделано |
-|---|---|
-| Полная автономия | Диспетчер GPU (cron 2 мин), исследовательские тики (cron 25 мин) и общий stdlib governor с SQLite leases |
-| Решения о fan-out/GPU принимает код | Dynamic capacity, VRAM/utilization, pause/resume, суточный budget и experiment lock — в `tools/governor.py`/`tools/dispatch.py`, а не только в промпте |
-| Ни одного внешнего пакета | Только Python stdlib, `sh` и PowerShell 5.1 |
-| Телеметрия и управление в Telegram | Управление — штатный шлюз Hermes; телеметрия — отправка только через Bot API (второго long-polling нет) |
-| Mini App — пульт лаборатории | `miniapp/`: 6 зон (пульт GPU, конвейер гипотез, live-графики, экипаж со ставками, подача идей, вердикты) на vanilla JS; stdlib-сервер с демо-симуляцией и live-адаптером к `tools/*` |
-| Рабочий чат экипажа (aichat) | `tools/crew.py`: Boss, Скиф, Аналитег, Морг, Гайка, Хроник, iВасёк — обсуждение работы, споры и взаимное ревью косяков, потенциал гипотез и патентов; ~5% реплик про заказчика и «мессию AGI», ~2% «кек/лол»; 0 GPU-ч, 0 токенов (`/aichat`) |
-| Два пользователя — одна картина | Единая SQLite в `state/`, любой `/status` читает одни и те же факты |
-| Защита от самообмана | Прогноз фиксируется ДО прогона; вердикт без прогноза невозможен; еженедельная калибровка весов |
-| Граница двух агентов | `selfcheck.py` проверяет, что токен не совпадает с токеном соседнего профиля |
-
-## Установка
-
-### Вариант 1 — штатный механизм Hermes (рекомендуется)
-
-```bash
-hermes profile install github.com/<ваш-логин>/researchagen --alias
+```
+researchagen gateway start   ← одно окно, живёт постоянно
+        │
+        ├── cron-диспетчер (каждые 2 мин)  → запускает/вытесняет эксперименты на GPU
+        ├── cron-исследование (каждые 25 мин) → агент читает MISSION.md,
+        │     создаёт субагентов (до 2 за раз, под контролем governor),
+        │     они ищут сигналы и возвращают отчёты, агент собирает из них
+        │     карточки гипотез с PASS/FAIL-критериями
+        └── Telegram-бот → /status, /dr, /kill, дайджесты, вердикты
 ```
 
-Затем в каталоге профиля запустите установщик, чтобы заполнить токен, модель и лимиты.
+Весь цикл — из файла `MISSION.md`: субагенты дробят его на задачи, находят
+сигналы, сводят их в гипотезы (7 обязательных пунктов, включая дешёвый тест и
+критерии опровержения), очередь отбирает лучшие по ценности на GPU-час, а
+диспетчер выполняет их по каскаду L0 → L1 → L2 → L3. Человек вмешивается
+только когда надо: подтвердить дорогой прогон или посмотреть вердикт.
 
-### Вариант 0 — всё уже установлено, только токен (in-place, без Hermes)
+---
 
-Проект уже содержит все инструменты, скиллы, cron, конфиг. Достаточно токена:
+## Установка на Windows
+
+### Шаг 0. Три программы (один раз)
+
+| Программа | Ссылка | Важно |
+|---|---|---|
+| **Python** | [python.org/downloads](https://www.python.org/downloads/) | ⚠️ отметьте галочку **«Add python.exe to PATH»** |
+| **Git** | [git-scm.com/download/win](https://git-scm.com/download/win) | все настройки по умолчанию |
+| **Ollama** | [ollama.com/download/windows](https://ollama.com/download/windows) | после установки — запустить (иконка в трее) |
+
+Проверка (PowerShell: **Win+R** → `powershell` → Enter):
+
+```powershell
+python -V; git --version; ollama --version
+```
+
+Должны появиться три строки с версиями. Если какой-то нет — перечитайте таблицу.
+
+Скачайте модель (один раз, ~20 ГБ, занимает время):
+
+```powershell
+ollama pull qwen3:27b
+```
+
+### Шаг 1. Установка — 3 варианта, выбирайте любой
+
+**Вариант А — одна строка (самый простой):** вставьте в PowerShell и Enter:
+
+```powershell
+powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/<ваш-логин>/researchagen/main/setup.ps1 | iex"
+```
+
+Всё скачается и настроится само. Если у вас уже есть готовый блок настроек от
+владельца — сначала вставьте его, а потом эту строку: вопросы задаваться не будут.
+
+**Вариант Б — двойной клик:**
 
 ```powershell
 git clone https://github.com/<ваш-логин>/researchagen
 cd researchagen
-# создай .env из примера и вставь токен
-copy .env.EXAMPLE .env
-# отредактируй .env: TELEGRAM_BOT_TOKEN=123:abc
-# (chat_id/user_id определятся авто через getUpdates, остальное — дефолты Ollama)
-python tools/selfcheck.py all
-python tools/rg.py status
-python tools/rg.py audit --no-coverage  # 80/80
 ```
 
-Или одной командой:
+Затем просто **дважды кликните `setup.bat`**. Ответьте на 2–4 вопроса
+(Enter = подходит). Если готовый `.env` уже существует — вопросов не будет вообще.
 
-```powershell
-powershell -ExecutionPolicy Bypass -File .\install.ps1 -BotToken "123:abc" -InPlace -NonInteractive
-```
-
-На macOS/Linux:
-
-```bash
-sh install.sh --in-place --token=123:abc
-```
-
-В этом режиме ничего не копируется в `~/.hermes/profiles/` — всё работает прямо из клона. Cron можно запускать вручную `python tools/rg.py tick` или через `researchagen gateway start` если Hermes установлен.
-
-### Вариант 2 — прямо из терминала (профиль Hermes)
-
-Windows (PowerShell) — быстрый режим (только токен и API):
+**Вариант В — руками (для тех, кто любит терминал):**
 
 ```powershell
 git clone https://github.com/<ваш-логин>/researchagen
 cd researchagen
 powershell -ExecutionPolicy Bypass -File .\install.ps1
-# спросит только TELEGRAM_BOT_TOKEN и модель API (Enter = Ollama локально)
-# остальное авто: windows/production 2/1, лимиты, chat_id из getUpdates
-
-# неинтерактивно:
-powershell -ExecutionPolicy Bypass -File .\install.ps1 -BotToken "123:abc" -NonInteractive
-
-# полный режим (6 шагов):
-powershell -ExecutionPolicy Bypass -File .\install.ps1 -Full
 ```
 
-macOS / Linux:
-
-```bash
-git clone https://github.com/<ваш-логин>/researchagen
-cd researchagen
-sh install.sh
-```
-
-Установщик спросит: ОС, корень Hermes, токен нового бота, chat_id и тему, id двух
-пользователей, адрес Ollama и имя модели, лимиты GPU. После записи сам прогоняет
-самопроверку и говорит, что именно сломано.
-
-**Двухплатформенность (Windows прод + macOS debug).** Один и тот же токен может
-жить в двух профилях — это штатно (см. `INSTALL-macos.md`): на macOS контур
-работает в `debug` (dry-run без GPU), на Windows — в `production`. `selfcheck.py`
-различает: коллизия токена в двух профилях — `WARN` («запускай только один gateway
-за раз»), а токен в корневом `~/.hermes/.env` — `FAIL`. Аналогично `GPU` и
-`локальная модель` на macOS — `WARN`/`OK` (dry-run доступен), а на Windows —
-`FAIL` только когда `config.yaml` уже установлен (шаблон `<<INSTALLER_>>` → `WARN`
-"запусти install.sh"). Логи не содержат `nvidia-smi` ошибок как `FAIL` на Windows
-когда карта есть — `gpu.snapshot()` возвращает `OK` с `RTX 5090: свободно XX GB`.
-
-**Обновление вручную.** Не используй `rsync --exclude=config.yaml --exclude=.env`:
-он сохраняет onboarding-конфиг `{'onboarding':{'seen':...}}` с капсами `0/0` и
-пустой моделью, из-за чего `governor` падает в `unsafe cap` и `selfcheck` даёт
-`FAIL`. Правильно — `hermes profile update` или `git pull` + `sh install.sh` /
-`install.ps1`, который перезапишет `config.yaml` из шаблона с капсами `2/1`.
-На Windows после `install.ps1` с GPU: `selfcheck` → `GPU OK`, `governor OK`,
-`model OK` (если Ollama/qwen3:27b) — контур rock.
-
-**Cron:** 5 заданий (`dispatcher`, `research-loop`, `daily-digest`, `weekly-recalib`,
-`hygiene`) используют `command` (`python tools/rg.py ...`), а не `script`. Если
-создаёшь свой `script`-джоб, путь должен быть относительным к
-`~/.hermes/scripts/` (резолвится как `HERMES_HOME/scripts/`, где `HERMES_HOME` =
-`/Users/.../.hermes/profiles/researchagen`). Ошибка "script path must be relative
-to ~/.hermes/scripts/" — передай только имя файла, например `cron_dispatcher.sh`,
-и положи файл в `HERMES_HOME/scripts/`.
-
-Подробно: [docs/WINDOWS.md](docs/WINDOWS.md) — полный deep-research с нуля (80 анализов), [docs/INSTALL-windows.md](docs/INSTALL-windows.md), [docs/INSTALL-macos.md](docs/INSTALL-macos.md), [docs/OPERATIONS.md](docs/OPERATIONS.md).
-
-## Запуск
-
-```bash
-researchagen gateway start   # бот + cron в ОТДЕЛЬНОМ терминале
-researchagen chat            # ручная сессия, когда нужно вмешаться
-```
-
-Ваш основной агент продолжает работать в своём терминале без изменений.
-
-## Команды
-
-Исследование: `/dr` `/mine` `/h` `/kill` `/bottom`
-Исполнение: `/pool` `/next` `/launch` `/preempt` `/v`
-Управление: `/auto` `/governor` `/panel` `/digest` `/gpu` `/calib` `/patent` `/add` `/board` `/doctor`
-Управление и наблюдение: `/panel` — все стадии + пульт; `/aichat` — переписка экипажа
-
-`/bottom` — опциональный гибридный Bottom Detection: дерево регионов,
-backtracking, transformations и async evaluators. Он не обходит kill-stage,
-очередь, governor или GPU-диспетчер. Подробно: [docs/BOTTOM-DETECTION.md](docs/BOTTOM-DETECTION.md);
-дополнительный 30-пунктовый аудит: [docs/BOTTOM-DETECTION-AUDIT.md](docs/BOTTOM-DETECTION-AUDIT.md).
-Архитектура bounded delegation и GPU admission описана в [docs/GOVERNOR.md](docs/GOVERNOR.md).
-
-Единая точка входа без модели: `python tools/rg.py <команда>`. Для Bottom Detection:
-`python tools/rg.py bottom run --iterations 1`. Перед изменением governor cap используйте
-live calibration: `python tools/rg.py benchmark --concurrencies 1,2 --requests-per-level 3`.
-
-## Структура
+Вопросы: токен бота (обязательно), URL модели (Enter = локальная Ollama),
+имя модели и ключ (Enter = подходит). В конце — `y` и самопроверка:
 
 ```
-MISSION.md SOUL.md .hermes.md FOCUS.md   — цель, характер, правила, текущий фокус
-config.yaml .env.EXAMPLE                 — конфигурация и шаблон секретов
-tools/                                   — основной контур, governor/admission + hybrid Bottom Detection (stdlib-only)
-skills/                                  — 20 скиллов = слеш-команды
-cron/                                    — 5 задач автономного контура
-hooks/BOOT.md                            — что делать в начале сессии
-miniapp/                                 — Telegram Mini App: пульт, конвейер, графики, экипаж, идеи, вердикты
-docs/                                    — архитектура, Telegram, эксплуатация, оценка
-tests/                                   — unittest без зависимостей
+  Готово. Профиль установлен и прошёл проверку.
 ```
 
-## Mini App (пульт лаборатории)
+### Шаг 2. Запуск
 
-Текстового бота неудобно читать, когда в живую крутятся графики, очередь и споры
-экипажа. Mini App закрывает это: статус за 3 секунды, вмешательство в один тап.
+Откройте новое окно PowerShell и выполните **одну команду** (или дважды кликните
+`start.bat` в папке проекта):
 
-```bash
-python3 miniapp/server.py --port 8787   # демо-симуляция, если state/ пуст; иначе live
+```powershell
+researchagen gateway start
 ```
 
-Подробности: [miniapp/README.md](miniapp/README.md).
+**Это окно не закрывайте** — пока оно открыто, бот и вся автоматика работают.
+Закрыли — всё остановилось; откроете снова — всё продолжится, ничего не теряется.
 
-## Где границы честности
+### Шаг 3. Проверка
 
-- Сам агент не доказывает механизмы — он строит конвейер, который их проверяет дешёво.
-- На macOS GPU-прогоны идут в dry-run: это проверка кода, а не научный результат.
-- Часть Telegram-возможностей (темы, меню команд) зависит от версии Hermes;
-  см. раздел «Что не проверено» в [docs/SCORING.md](docs/SCORING.md).
+В Telegram напишите боту:
+
+```
+/status
+```
+
+В ответ — картина состояния: платформа, модель, GPU, очередь гипотез.
+Всё, установка закончена.
+
+---
+
+## Частые проблемы
+
+| Симптом | Решение |
+|---|---|
+| «python не является внутренней или внешней командой» | Переустановите Python с галочкой **«Add python.exe to PATH»**, откройте **новое** окно PowerShell |
+| «git не найден» | Установите Git с [git-scm.com](https://git-scm.com/download/win) |
+| «ollama не найден» | Установите и запустите Ollama (иконка в трее), проверьте: `ollama list` |
+| «Модель X ещё не скачана» | `ollama pull qwen3:27b` (или то имя, что в `.env`) |
+| Бот молчит, в логах `chat_id=0` | Напишите боту `/start`, затем `/status` — бот подскажет, что поправить в `.env` |
+| Закрыл окно — бот перестал отвечать | Так и задумано. Откройте новое окно → `researchagen gateway start` |
+| «hermes не найден» при установке | Автоматика cron не подключилась. Это значит, agent-hermes не установлен — обратитесь к владельцу |
+| Ошибка «token lock» | У профиля должен быть **свой отдельный** бот (создаётся у @BotFather), токен основного агента не подходит |
+
+---
+
+## Команды (шпаргалка)
+
+| Что | Команды |
+|---|---|
+| Состояние | `/status` |
+| Исследование | `/dr` `/mine` `/h` `/kill` `/bottom` |
+| Исполнение | `/pool` `/next` `/launch` `/preempt` `/v` |
+| Управление | `/auto` `/governor` `/panel` `/digest` `/gpu` `/calib` `/patent` `/add` `/board` `/doctor` |
+| Экипаж | `/aichat` — переписка агентов-исследователей |
+
+Без Telegram то же самое: `python tools/rg.py status`, `python tools/rg.py tick`.
+
+---
+
+## Для владельца
+
+- Полный опрос установщика (6 шагов): `powershell -ExecutionPolicy Bypass -File .\install.ps1 -Full`
+- Обновление у друга: `cd researchagen; git pull; powershell -ExecutionPolicy Bypass -File .\install.ps1 -NonInteractive`
+  (`.env` и база состояния сохраняются, чужие строки в `.env` не трогаются)
+- `.env` **никогда не коммитьте** — он в `.gitignore`, установщик пишет его с правами только для текущего пользователя
+- Структура: `MISSION.md` (миссия → гипотезы), `SOUL.md` / `.hermes.md` / `FOCUS.md` (характер и правила),
+  `tools/` (контур, stdlib-only), `skills/` (слеш-команды), `cron/` (5 задач автономии),
+  `miniapp/` (Telegram Mini App — пульт лаборатории), `docs/` (архитектура, эксплуатация)
+- Подробно: [docs/INSTALL-windows.md](docs/INSTALL-windows.md), [docs/WINDOWS.md](docs/WINDOWS.md),
+  [docs/OPERATIONS.md](docs/OPERATIONS.md), [docs/TELEGRAM.md](docs/TELEGRAM.md), [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 
 Лицензия: MIT.

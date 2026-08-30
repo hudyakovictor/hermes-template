@@ -25,7 +25,8 @@ Telegram Mini App для наблюдения и управления конту
 ## Запуск
 
 ```bash
-python3 miniapp/server.py --port 8787   # порт также задаётся переменной PORT
+# Windows: python miniapp/server.py --port 8787   (порт также задаётся переменной PORT)
+python3 miniapp/server.py --port 8787
 ```
 
 Открыть `http://localhost:8787`. Вне Telegram приложение работает полностью —

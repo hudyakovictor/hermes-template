@@ -986,7 +986,9 @@ def main(argv: list[str]) -> int:
         core.emit(data, as_json, _text_result(data))
         return 0
     if cmd in ("report", "validate-report"):
-        path = core.arg(argv, "file") or (argv[2] if len(argv) > 2 else "")
+        raw_next = argv[2] if len(argv) > 2 else ""
+        # --json/--quiet — флаги вывода, а не путь к отчёту
+        path = core.arg(argv, "file") or ("" if raw_next.startswith("-") else raw_next)
         if not path:
             core.fail("нужен --file <путь к JSON-отчёту воркера> "
                       "(отчёты пишут воркеры Hermes, см. docs/GOVERNOR.md)")

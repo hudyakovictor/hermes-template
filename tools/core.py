@@ -20,11 +20,88 @@ import sys
 import time
 from datetime import datetime, timedelta, timezone
 
+# --------------------------------------------------------------------------- вывод
+
+# Windows: при редиректе stdout (cron, логи, subprocess, файлы) Python берёт
+# locale-кодировку (cp866/cp1251) — эмодзи и кириллица роняют вывод с
+# UnicodeEncodeError. Всегда пишем в UTF-8 и без краха на непечатных символах.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, OSError):
+        pass
+
+
+def _read_text(path: str) -> str:
+    """Читает текст, устойчиво к кодировкам Windows.
+
+    Set-Content на русской Windows пишет .env в ANSI (cp1251), Out-File — в
+    UTF-16. Пробуем по BOM UTF-8/16/32, затем UTF-8, затем ANSI, затем без потерь.
+    """
+    with open(path, "rb") as fh:
+        raw = fh.read()
+    head = raw[:4]
+    if head[:2] in (b"\xff\xfe", b"\xfe\xff"):
+        candidates = ["utf-16"]
+    elif head[:4] in (b"\xff\xfe\x00\x00", b"\x00\x00\xfe\xff"):
+        candidates = ["utf-32"]
+    elif head[:3] == b"\xef\xbb\xbf":
+        candidates = ["utf-8-sig"]
+    elif b"\x00" in raw:
+        # null-байты без BOM: похоже на UTF-16/32, но байты UTF-16-представления
+        # кириллицы валидны как ASCII, поэтому utf-8 «успешно» декодирует мусор —
+        # пробуем юникодные кодировки первыми
+        candidates = ["utf-16", "utf-32"]
+    else:
+        candidates = ["utf-8"]
+    for candidate in candidates:
+        try:
+            return raw.decode(candidate)
+        except UnicodeDecodeError:
+            continue
+    for enc in ("cp1251", "cp1252", "latin-1"):
+        try:
+            return raw.decode(enc)
+        except UnicodeDecodeError:
+            continue
+    return raw.decode("utf-8", errors="replace")
+
 # --------------------------------------------------------------------------- пути
 
 TOOLS_DIR = os.path.dirname(os.path.abspath(__file__))
-ROOT = os.environ.get("RESEARCHAGEN_HOME") or os.path.dirname(TOOLS_DIR)
-ROOT = os.path.abspath(ROOT)
+
+
+def _discover_root() -> str:
+    """Корень профиля: где лежат .env / config.yaml / state.
+
+    Приоритет:
+      1) переменная окружения RESEARCHAGEN_HOME;
+      2) RESEARCHAGEN_HOME, записанный в .env рядом с текущим каталогом
+         (профиль в ~/.hermes, а команду запустили из клона проекта);
+      3) текущий каталог, если в нём есть config.yaml (in-place / cron workdir);
+      4) каталог, где лежит tools/ (запуск из самого профиля).
+    """
+    env_home = os.environ.get("RESEARCHAGEN_HOME")
+    if env_home:
+        return os.path.abspath(env_home)
+    cwd = os.getcwd()
+    local_env = os.path.join(cwd, ".env")
+    if os.path.exists(local_env):
+        try:
+            for raw in _read_text(local_env).splitlines():
+                line = raw.strip()
+                if line.startswith("RESEARCHAGEN_HOME="):
+                    val = line.split("=", 1)[1].strip().strip('"').strip("'")
+                    if val:
+                        return os.path.abspath(os.path.expanduser(val))
+        except OSError:
+            pass
+    if os.path.exists(os.path.join(cwd, "config.yaml")):
+        return os.path.abspath(cwd)
+    return os.path.abspath(os.path.dirname(TOOLS_DIR))
+
+
+ROOT = _discover_root()
 
 STATE_DIR = os.path.join(ROOT, "state")
 DB_PATH = os.path.join(STATE_DIR, "researchagen.sqlite3")
@@ -91,16 +168,17 @@ def load_env(path: str = ENV_PATH) -> dict:
     """Читает .env в dict и добавляет в os.environ то, чего там нет."""
     data: dict[str, str] = {}
     if os.path.exists(path):
-        with open(path, "r", encoding="utf-8") as fh:
-            for raw in fh:
-                line = raw.strip()
-                if not line or line.startswith("#") or "=" not in line:
-                    continue
-                key, _, val = line.partition("=")
-                key = key.strip()
-                val = val.strip().strip('"').strip("'")
-                data[key] = val
-                os.environ.setdefault(key, val)
+        for raw in _read_text(path).splitlines():
+            line = raw.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            if line.startswith("export "):
+                line = line[len("export "):].strip()
+            key, _, val = line.partition("=")
+            key = key.strip()
+            val = val.strip().strip('"').strip("'")
+            data[key] = val
+            os.environ.setdefault(key, val)
     for key in ("TELEGRAM_BOT_TOKEN", "TELEGRAM_HOME_CHANNEL", "TELEGRAM_ALLOWED_USERS",
                 "TELEGRAM_CRON_THREAD_ID", "RESEARCHAGEN_MODEL_BASE_URL",
                 "RESEARCHAGEN_MODEL_NAME", "OPENROUTER_API_KEY"):
@@ -129,6 +207,10 @@ def _coerce(token: str):
         return False
     if token in ("null", "~", ""):
         return None
+    if token.startswith("<<INSTALLER_") and token.endswith(">>"):
+        # необработанный плейсхолдер установщика = «значение не задано»;
+        # потребители получают дефолт из cfg(..., default), а не краш float().
+        return None
     if _NUM_RE.match(token):
         return float(token) if "." in token else int(token)
     return token
@@ -144,7 +226,8 @@ def load_config(path: str = CONFIG_PATH) -> dict:
     if not os.path.exists(path):
         return root
     stack: list[tuple[int, dict]] = [(-1, root)]
-    with open(path, "r", encoding="utf-8") as fh:
+    # utf-8-sig: срезает BOM, который могут добавить редакторы Windows
+    with open(path, "r", encoding="utf-8-sig") as fh:
         for raw in fh:
             if not raw.strip() or raw.lstrip().startswith("#"):
                 continue

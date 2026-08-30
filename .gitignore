@@ -19,6 +19,8 @@ state/
 reports/*.md
 reports/*.json
 !reports/.gitkeep
+results/
+!results/.gitkeep
 signals/*
 !signals/.gitkeep
 hypotheses/*
