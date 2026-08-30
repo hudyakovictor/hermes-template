@@ -382,7 +382,8 @@ def main(argv: list[str]) -> int:
             import ideas as _ideas
             card = ""
             if os.path.exists(card_path(hid)):
-                card = open(card_path(hid), encoding="utf-8").read()
+                with open(card_path(hid), encoding="utf-8") as fh:
+                    card = fh.read()
             row = conn.execute("SELECT title FROM hypotheses WHERE id=?",
                                (hid,)).fetchone()
             _ideas.bank_save(conn, hid, (row or {"title": hid})["title"] or "",

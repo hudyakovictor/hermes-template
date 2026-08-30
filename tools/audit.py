@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""researchagen — аудит функционала: 30 анализов, покрывающих ~90% комбинаций задач.
+"""researchagen — аудит функционала: 35 анализов, покрывающих ~90% комбинаций задач.
 
 Метод: каждый анализ прогоняет реальный код (библиотечные вызовы на временной
 базе или CLI во временном RESEARCHAGEN_HOME) и возвращает находки FAIL/WARN.
 Аудит честный: он находит ошибки до их исправления и проходит после.
 
 Что измеряется:
-  * 30 анализов по 7 зонам: данные, вердикты/калибровка, диспетчер/governor,
+  * 35 анализов по 8 зонам: данные, вердикты/калибровка, диспетчер/governor,
     чат, интерфейс/доки, изоляция, источники;
   * топ-20 ошибок: первые 20 FAIL-находок (после исправления должно быть 0);
   * строчный охват инструментов (trace) — «какая доля кода реально выполнена
@@ -248,7 +248,8 @@ def a06() -> list[dict]:
         os.makedirs(os.path.dirname(card), exist_ok=True)
         text = "\n\n".join(f"{sec}: |\n  x" for sec in hypo.REQUIRED_SECTIONS)
         text += "\n\nkill_checks:\n" + "\n".join(["- passed: true"] * 8)
-        open(card, "w", encoding="utf-8").write(text)
+        with open(card, "w", encoding="utf-8") as fh:
+            fh.write(text)
         conn.execute("UPDATE hypotheses SET card_path=? WHERE id=?", (card, hid))
         conn.commit()
         gate = hypo.check(hid, conn)
@@ -276,7 +277,8 @@ def _full_card(home: str, conn, hid: str) -> None:
     os.makedirs(os.path.dirname(card), exist_ok=True)
     text = "\n\n".join(f"{sec}: |\n  x" for sec in hypo.REQUIRED_SECTIONS)
     text += "\n\nkill_checks:\n" + "\n".join(["- passed: true"] * 8)
-    open(card, "w", encoding="utf-8").write(text)
+    with open(card, "w", encoding="utf-8") as fh:
+        fh.write(text)
     conn.execute("UPDATE hypotheses SET card_path=? WHERE id=?", (card, hid))
     conn.commit()
 
@@ -398,15 +400,22 @@ def a11() -> list[dict]:
     try:
         conn = core.db(os.path.join(home, "state", "db.sqlite3"))
         out = []
-        config = core.load_config()
+        cfg_path = os.path.join(home, "config.yaml")
+        config = core.load_config(cfg_path) if os.path.exists(cfg_path) else core.load_config()
         hid = _mk_hypo(conn)
         _full_card(home, conn, hid)
-        # пауза
+        # пауза — ставим оба ключа для совместимости (boolean и timed)
+        core.set_setting(conn, "dispatch.paused", True)
         core.set_setting(conn, "dispatch.paused_until", "2999-01-01T00:00:00+00:00")
         res = dispatch.launch(conn, hid, "L0", config=config)
         if res.get("ok"):
             out.append(f(FAIL, "запуск на паузе прошёл"))
+        core.set_setting(conn, "dispatch.paused", False)
         core.set_setting(conn, "dispatch.paused_until", "")
+        # чистим возможные артефакты от debug-запуска на паузе (dry-run мог успеть создать run)
+        conn.execute("DELETE FROM runs WHERE state='running'")
+        conn.execute("DELETE FROM governor_leases WHERE state NOT IN ('released','stopped')")
+        conn.commit()
         # спрос-чек L2 (карточка полная → единственный отказ — спрос)
         res = dispatch.launch(conn, hid, "L2", config=config)
         if res.get("ok") or "спрос" not in res.get("reason", ""):
@@ -859,7 +868,9 @@ def a29() -> list[dict]:
                 mock.patch.object(core, "load_env",
                                   return_value={"TELEGRAM_BOT_TOKEN": token}):
             checks = selfcheck.check_isolation()
-        clash = [c for c in checks if c["state"] == selfcheck.FAIL]
+        # токен в двух профилях — теперь WARN (macOS+Windows допустимо), в корне — FAIL
+        clash = [c for c in checks if c["state"] in (selfcheck.FAIL, selfcheck.WARN)
+                 and "токен" in c["check"]]
         if not clash:
             return [f(FAIL, "коллизия токена двух профилей не обнаружена")]
         return []
@@ -914,6 +925,160 @@ def a30() -> list[dict]:
             out.append(f(FAIL, "офлайн-деградация врёт о покрытии"))
         if "нельзя" not in report2.get("verdict", ""):
             out.append(f(FAIL, "офлайн-вердикт не запрещает вывод «аналогов нет»"))
+        return out
+    finally:
+        tmp.cleanup()
+
+
+
+# ==========================================================================
+# ==========================================================================
+# ==========================================================================
+# ZONE H. Кроссплатформенность (Windows прод, macOS debug)
+# ==========================================================================
+
+@analysis(31, "platform_modes", "платформенные режимы: macos->debug, windows->production")
+def a31() -> list[dict]:
+    out = []
+    import core as _core
+    import unittest.mock as _mock
+    # platform_mode uses sys.platform and os.name fallback
+    cases = [
+        ("darwin", "posix", "macos", True),
+        ("win32", "nt", "windows", False),
+        ("linux", "posix", "linux", False),
+    ]
+    for sys_plat, os_name, want_platform, want_debug in cases:
+        with _mock.patch.object(_core.sys, "platform", sys_plat),              _mock.patch.object(_core.os, "name", os_name):
+            # empty config -> fallback to sys/os
+            plat, is_dbg = _core.platform_mode({})
+            if plat != want_platform:
+                out.append(f(FAIL, f"{sys_plat}/{os_name}: platform={plat}, ожидалось {want_platform}"))
+            if bool(is_dbg) != want_debug:
+                out.append(f(FAIL, f"{sys_plat}/{os_name}: is_debug={is_dbg}, ожидалось {want_debug}"))
+    return out
+
+
+@analysis(32, "gpu_cross_platform", "GPU-гейт: macOS dry-run без карты, Windows требует карту")
+def a32() -> list[dict]:
+    home, tmp = _tmp_home()
+    try:
+        import core as _core
+        import gpu as _gpu
+        import unittest.mock as _mock
+        out = []
+        # Darwin should give debug=True and can_launch=True even without nvidia-smi
+        with _mock.patch.object(_core.sys, "platform", "darwin"),              _mock.patch.object(_core.os, "name", "posix"):
+            cfg_path = os.path.join(home, "config.yaml")
+            cfg = _core.load_config(cfg_path)
+            snap = _gpu.snapshot(cfg)
+            if not snap.get("debug"):
+                out.append(f(FAIL, f"Darwin: snapshot.debug должен быть True, получили {snap}"))
+            ok, reason, _ = _gpu.can_launch(config=cfg)
+            if not ok:
+                out.append(f(FAIL, f"Darwin dry-run: can_launch=False ({reason})"))
+        # Windows without GPU should be not launchable (fail-closed) when production
+        with _mock.patch.object(_core.sys, "platform", "win32"),              _mock.patch.object(_core.os, "name", "nt"),              _mock.patch("shutil.which", return_value=None):
+            cfg = _core.load_config(os.path.join(home, "config.yaml"))
+            # force production mode
+            cfg.setdefault("researchagen", {})["platform"] = "windows"
+            cfg["researchagen"]["mode"] = "production"
+            snap = _gpu.snapshot(cfg)
+            if snap.get("debug"):
+                out.append(f(FAIL, f"Windows production: debug должен быть False, получили {snap}"))
+            ok, reason, _ = _gpu.can_launch(config=cfg)
+            if ok:
+                out.append(f(FAIL, f"Windows без GPU: can_launch=True, должен быть False"))
+        return out
+    finally:
+        tmp.cleanup()
+
+
+@analysis(33, "token_isolation_platform", "изоляция токена: корень=FAIL, профили=WARN")
+def a33() -> list[dict]:
+    home, tmp = _tmp_home()
+    try:
+        import selfcheck as _sc
+        import core as _core
+        import unittest.mock as _mock
+        out = []
+        fake_home = os.path.join(tmp.name, "hermes")
+        p1 = os.path.join(fake_home, "profiles", "main")
+        p2 = os.path.join(fake_home, "profiles", "research")
+        os.makedirs(p1, exist_ok=True)
+        os.makedirs(p2, exist_ok=True)
+        token = "12345:PLATFORM-TOKEN-audit"
+        with open(os.path.join(p1, ".env"), "w", encoding="utf-8") as fh:
+            fh.write(f"TELEGRAM_BOT_TOKEN={token}\n")
+        with open(os.path.join(p2, ".env"), "w", encoding="utf-8") as fh:
+            fh.write(f"TELEGRAM_BOT_TOKEN={token}\n")
+        with _mock.patch.dict(os.environ, {"HERMES_HOME": fake_home}),              _mock.patch.object(_core, "load_env", return_value={"TELEGRAM_BOT_TOKEN": token}):
+            checks = _sc.check_isolation()
+        warns = [c for c in checks if c["state"] == _sc.WARN and "токен" in c["check"]]
+        if not warns:
+            out.append(f(FAIL, f"коллизия профилей main/research должна быть WARN, получили {checks}"))
+        with open(os.path.join(fake_home, ".env"), "w", encoding="utf-8") as fh:
+            fh.write(f"TELEGRAM_BOT_TOKEN={token}\n")
+        with _mock.patch.dict(os.environ, {"HERMES_HOME": fake_home}),              _mock.patch.object(_core, "load_env", return_value={"TELEGRAM_BOT_TOKEN": token}):
+            checks2 = _sc.check_isolation()
+        root_fails = [c for c in checks2 if c["state"] == _sc.FAIL and "корневой" in c["detail"]]
+        if not root_fails:
+            root_fails2 = [c for c in checks2 if c["state"] == _sc.FAIL and "токен" in c["check"]]
+            if not root_fails2:
+                out.append(f(FAIL, f"корневой .env + профиль должен давать FAIL, получили {checks2}"))
+        return out
+    finally:
+        tmp.cleanup()
+
+
+@analysis(34, "model_check_platform", "модель: debug=WARN, production=FAIL при пустой базе")
+def a34() -> list[dict]:
+    home, tmp = _tmp_home()
+    try:
+        import selfcheck as _sc
+        import core as _core
+        import unittest.mock as _mock
+        out = []
+        with _mock.patch.object(_core.sys, "platform", "darwin"),              _mock.patch.object(_core.os, "name", "posix"):
+            with _mock.patch.object(_core, "load_env", return_value={"RESEARCHAGEN_MODEL_BASE_URL": ""}):
+                checks = _sc.check_model()
+            if not any(c["state"] == _sc.WARN for c in checks):
+                out.append(f(FAIL, f"Darwin: пустая base_url должна быть WARN, получили {checks}"))
+            if any(c["state"] == _sc.FAIL and "модель" in c["check"].lower() for c in checks):
+                out.append(f(FAIL, f"Darwin: пустая base_url дала FAIL вместо WARN, {checks}"))
+        with _mock.patch.object(_core.sys, "platform", "win32"),              _mock.patch.object(_core.os, "name", "nt"):
+            with _mock.patch.object(_core, "load_env", return_value={"RESEARCHAGEN_MODEL_BASE_URL": ""}):
+                checks = _sc.check_model()
+            if not any(c["state"] == _sc.FAIL for c in checks):
+                out.append(f(FAIL, f"Windows: пустая base_url должна быть FAIL, получили {checks}"))
+        return out
+    finally:
+        tmp.cleanup()
+
+
+@analysis(35, "governor_caps", "governor: капсы 2/1 из шаблона, не 0/0 после onboarding")
+def a35() -> list[dict]:
+    home, tmp = _tmp_home()
+    try:
+        import core as _core
+        import selfcheck as _sc
+        import unittest.mock as _mock
+        out = []
+        cfg_path = os.path.join(home, "config.yaml")
+        cfg = _core.load_config(cfg_path)
+        # шаблонный конфиг должен иметь delegation caps 2/1
+        max_children = int(_core.cfg("delegation.max_concurrent_children", 0, cfg) or 0)
+        max_depth = int(_core.cfg("delegation.max_spawn_depth", 0, cfg) or 0)
+        if max_children < 1:
+            out.append(f(FAIL, f"delegation.max_concurrent_children={max_children} < 1 (ожидалось 2)"))
+        if max_depth != 1:
+            out.append(f(FAIL, f"delegation.max_spawn_depth={max_depth} != 1"))
+        # onboarding конфиг (только onboarding ключ) должен давать WARN, не OK/FAIL 0/0
+        onboarding_cfg = {"onboarding": {"seen": True}}
+        with _mock.patch.object(_core, "load_config", return_value=onboarding_cfg):
+            checks = _sc.check_governor()
+            if not any(c["state"] == _sc.WARN for c in checks):
+                out.append(f(FAIL, f"onboarding config должен давать WARN в check_governor, получили {checks}"))
         return out
     finally:
         tmp.cleanup()

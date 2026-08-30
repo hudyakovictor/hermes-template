@@ -61,6 +61,20 @@ sh install.sh
 пользователей, адрес Ollama и имя модели, лимиты GPU. После записи сам прогоняет
 самопроверку и говорит, что именно сломано.
 
+**Двухплатформенность (Windows прод + macOS debug).** Один и тот же токен может
+жить в двух профилях — это штатно (см. `INSTALL-macos.md`): на macOS контур
+работает в `debug` (dry-run без GPU), на Windows — в `production`. `selfcheck.py`
+различает: коллизия токена в двух профилях — `WARN` («запускай только один gateway
+за раз»), а токен в корневом `~/.hermes/.env` — `FAIL`. Аналогично `GPU` и
+`локальная модель` на macOS — `WARN`/`OK` (dry-run доступен), а на Windows —
+`FAIL`.
+
+**Обновление вручную.** Не используй `rsync --exclude=config.yaml --exclude=.env`:
+он сохраняет onboarding-конфиг `{'onboarding':{'seen':...}}` с капсами `0/0` и
+пустой моделью, из-за чего `governor` падает в `unsafe cap` и `selfcheck` даёт
+`FAIL`. Правильно — `hermes profile update` или `git pull` + `sh install.sh` /
+`install.ps1`, который перезапишет `config.yaml` из шаблона с капсами `2/1`.
+
 Подробно: [docs/INSTALL-windows.md](docs/INSTALL-windows.md), [docs/INSTALL-macos.md](docs/INSTALL-macos.md).
 
 ## Запуск

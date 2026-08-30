@@ -47,7 +47,19 @@ def gpu_hours_today(conn) -> float:
 
 
 def is_paused(conn) -> bool:
-    return bool(core.setting(conn, "dispatch.paused", False))
+    # legacy boolean flag (pause/resume commands) + timed pause for audits/tests
+    if bool(core.setting(conn, "dispatch.paused", False)):
+        return True
+    until = core.setting(conn, "dispatch.paused_until", None)
+    if until:
+        try:
+            dt = core.parse_iso(str(until))
+            if dt and dt > core.now():
+                return True
+        except Exception:
+            # malformed value — treat as not paused, don't crash dispatcher
+            return False
+    return False
 
 
 def approved(conn, hid: str) -> bool:

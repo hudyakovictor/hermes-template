@@ -122,7 +122,8 @@ def record(conn, hid: str, kind: str, actual=None, seeds_pass: int = 0,
     try:
         card = ""
         if row["card_path"] and os.path.exists(row["card_path"]):
-            card = open(row["card_path"], encoding="utf-8").read()
+            with open(row["card_path"], encoding="utf-8") as fh:
+                card = fh.read()
         ideas.bank_save(conn, hid, row["title"] or "", card,
                         "refuted" if kind == "rejected" else kind,
                         f"вердикт {kind}: факт {actual} при прогнозе "
