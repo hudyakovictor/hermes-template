@@ -25,28 +25,21 @@ Telegram Mini App для наблюдения и управления конту
 ## Запуск
 
 ```bash
-python3 miniapp/server.py --port 8787          # авто: live при наличии state/, иначе демо
-python3 miniapp/server.py --port 8787 --demo   # принудительная демо-симуляция
+python3 miniapp/server.py --port 8787   # порт также задаётся переменной PORT
 ```
 
 Открыть `http://localhost:8787`. Вне Telegram приложение работает полностью —
 отличается только отсутствие хаптики и нативной кнопки «Назад».
 
-### Демо-режим
+### Только live, без демо-данных
 
-Если живого `state/researchagen.sqlite3` нет (или пуст), сервер разворачивает в
-памяти детерминированную симуляцию лаборатории: гоняется L1 по H-041 с живой
-телеметрией, экипаж переписывается, спор открыт для голосования, H-044 ждёт
-подтверждения, диспетчер сам берёт следующую гипотезу по PPI. Все кнопки
-работают по-настоящему (пауза, снятие, одобрение, приоритет, идея).
-
-### Live-режим
-
-`/api/state` читает живой профиль через штатные CLI инструментов
-(`tools/queue.py list --json`, `tools/verdict.py list --json`, `tools/gpu.py show --json`).
-Любой сбой — тихий откат в демо. Изменять live-состояние Mini App по дизайну
-не должен: воздействия идут через штатный шлюз Hermes (`/pause`, `/approve`, …),
-а в live-режиме кнопки показывают состояние, но подсвечивают «управляй ботом».
+Демо-режим удалён полностью. `/api/state` читает живой профиль через штатные
+CLI контура (`tools/rg.py status`, `tools/queue.py list --all`,
+`tools/verdict.py list`, `tools/gpu.py show`, `tools/crew.py replay/review/stats`,
+`tools/rg.py bets/ideas`) плюс read-only SQLite. Пустая база — честные пустые
+состояния. Воздействия идут теми же CLI, что у бота: pause/resume/kill_task/
+approve/launch/check/idea; голосование в спорах отключено — споры закрывает
+арбитраж Boss.
 
 ## Подключение к Telegram
 
@@ -76,6 +69,6 @@ miniapp/
 * `GET /api/state` — вся картина одним запросом (GPU, governor, очередь, прогоны,
   экипаж, вердикты, статистика). Фронт опрашивает раз в 4 с и перерисовывает
   экран только при реальном изменении данных (diff-ключ).
-* `GET /api/ping` — режим (demo/live).
+* `GET /api/ping` — режим (live).
 * `POST /api/action` — воздействия: `pause`, `resume`, `kill_task`, `approve`,
   `boost`, `run_check`, `run_level`, `idea_check`, `submit_idea`, `vote`.

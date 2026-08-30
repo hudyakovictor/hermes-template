@@ -74,6 +74,66 @@ def similarity(a: str, b: str) -> float:
     return round(max(jac, 0.9 * contain), 3)
 
 
+# ---------------------------------------------------------------- сигнал-банк
+# Двусторонняя память истории: гипотеза может умереть, а её сигналы — нет.
+# confirmed/reusable блоки предлагаются как строительные блоки новых гипотез,
+# refuted — «это уже проверено тестом», чтобы не гонять одно и то же.
+
+BANK_THRESHOLD = 0.5          # ниже порога дублей: ловим именно сигналы
+CLAIM_RE = re.compile(r'claim:\s*"([^"]{10,})"')
+
+
+def bank_save(conn, hid: str, title: str, card_text: str, outcome: str,
+              evidence: str) -> int:
+    """Записать гипотезу в банк: заголовок (проверен тестом) + сигналы карточки.
+
+    outcome для заголовка — вердикт (confirmed/refuted/partial); для сигналов
+    из карточки — 'reusable' у непрошедших (сигналы не опровергнуты, гипотеза
+    падала) и 'confirmed' у подтверждённых.
+    """
+    rows = [(hid, title.strip(), outcome, evidence, core.iso())]
+    for claim in CLAIM_RE.findall(card_text or ""):
+        rows.append((hid, claim.strip(),
+                     "confirmed" if outcome == "confirmed" else "reusable",
+                     evidence, core.iso()))
+    conn.executemany(
+        "INSERT INTO signal_bank (hid, claim, outcome, evidence, created_at)"
+        " VALUES (?,?,?,?,?)", rows)
+    conn.commit()
+    return len(rows)
+
+
+def check_signal_bank(conn, text: str) -> list[dict]:
+    """Совпадения идеи с банком сигналов — память прошлых прогонов.
+
+    confirmed/reusable → «строительный блок доступен» (плюс к новой гипотезе),
+    refuted → «уже проверено тестом» (не рассматривать повторно).
+    """
+    out: list[dict] = []
+    try:
+        rows = conn.execute(
+            "SELECT hid, claim, outcome, evidence FROM signal_bank").fetchall()
+    except Exception:  # noqa: BLE001 — старая база без таблицы
+        return out
+    for r in rows:
+        score = similarity(text, r["claim"] or "")
+        if score >= BANK_THRESHOLD:
+            out.append({"hid": r["hid"], "claim": r["claim"],
+                        "outcome": r["outcome"], "evidence": r["evidence"],
+                        "score": score})
+    return sorted(out, key=lambda m: -m["score"])[:5]
+
+
+def signal_bank_list(conn) -> list[dict]:
+    try:
+        rows = conn.execute(
+            "SELECT hid, claim, outcome, evidence, created_at FROM signal_bank"
+            " ORDER BY signal_id DESC LIMIT 100").fetchall()
+        return [dict(r) for r in rows]
+    except Exception:  # noqa: BLE001
+        return []
+
+
 def find_duplicates(conn, text: str, threshold: float = DUP_THRESHOLD) -> list[dict]:
     """Дубли против: лога идей (вкл. отклонённые) и всех гипотез в базе.
 
@@ -158,14 +218,31 @@ def submit(text: str, source: str = "telegram") -> dict:
             core.log_event(conn, "ideas.duplicate", None, dup=dup["id"],
                            score=dup["score"])
             return {"ok": False, "duplicate": True, "reason": reason, "dups": dups}
+        bank_matches = check_signal_bank(conn, text)
         est = quick_estimate(text)
         item = inbox.add(text, source=source)
         crew.safe_emit("idea_intake", conn=conn, ctx={
             "iid": item["id"], "title": text[:80],
             "signals_est": est["signals"]})
         core.log_event(conn, "ideas.submit", None, inbox_id=item["id"])
-        return {"ok": True, "inbox_id": item["id"], "estimate": est,
-                "next": f"разбор: python tools/rg.py triage {item['id']}"}
+        res = {"ok": True, "inbox_id": item["id"], "estimate": est,
+               "next": f"разбор: python tools/rg.py triage {item['id']}"}
+        if bank_matches:
+            res["signal_matches"] = bank_matches
+            refuted = [m for m in bank_matches if m["outcome"] == "refuted"]
+            reusable = [m for m in bank_matches if m["outcome"] != "refuted"]
+            if reusable:
+                crew.safe_emit("signal_recall", conn=conn, ctx={
+                    "iid": item["id"], "hid": reusable[0]["hid"],
+                    "outcome": reusable[0]["outcome"],
+                    "claim": reusable[0]["claim"][:70]})
+                core.log_event(conn, "ideas.signal_match", None,
+                               inbox_id=item["id"], bank_hid=reusable[0]["hid"],
+                               outcome=reusable[0]["outcome"])
+            if refuted:
+                res["warning"] = (f"похоже на проверенное и опровергнутое "
+                                  f"({refuted[0]['hid']}): уточни отличие механизма")
+        return res
     finally:
         conn.close()
 
@@ -295,11 +372,21 @@ def main(argv: list[str]) -> int:
                       f"Дубль: {res['reason']}\nНовое — с новыми данными, "
                       f"иначе ответ тот же.")
             return 1
+        bank_txt = ""
+        matches = res.get("signal_matches") or []
+        if matches:
+            ru = {"confirmed": "подтверждён тестом", "refuted": "опровергнут",
+                  "partial": "частично", "reusable": "жив, переиспользуем"}
+            lines = [f"  • {m['hid']}: {ru.get(m['outcome'], m['outcome'])}"
+                     f" — {m['claim'][:60]}" for m in matches[:3]]
+            bank_txt = "\nПамять истории (банк сигналов):\n" + "\n".join(lines)
+        warn = f"\n⚠️ {res['warning']}" if res.get("warning") else ""
         core.emit(res, as_json,
                   f"Идея {res['inbox_id']} принята в разбор. Экипаж обсуждает.\n"
                   f"Оценка (предварительная): сигналов {res['estimate']['signals']}/3,"
                   f" money {res['estimate']['money']:.1f}.\n"
-                  f"Разбор: python tools/rg.py triage {res['inbox_id']}")
+                  f"Разбор: python tools/rg.py triage {res['inbox_id']}"
+                  + bank_txt + warn)
         return 0
 
     if cmd == "triage":

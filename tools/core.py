@@ -240,6 +240,15 @@ CREATE TABLE IF NOT EXISTS agent_bets (
     resolved_at TEXT
 );
 
+CREATE TABLE IF NOT EXISTS signal_bank (
+    signal_id   INTEGER PRIMARY KEY AUTOINCREMENT,
+    hid         TEXT,                 -- гипотеза-источник
+    claim       TEXT NOT NULL,        -- утверждение/сигнал
+    outcome     TEXT NOT NULL,        -- confirmed|refuted|partial|reusable
+    evidence    TEXT,                 -- чем проверено (вердикт, тест, снятие)
+    created_at  TEXT
+);
+
 CREATE TABLE IF NOT EXISTS idea_log (
     idea_id    TEXT PRIMARY KEY,          -- IN-XXX | DUP-XXXXX
     text       TEXT NOT NULL,

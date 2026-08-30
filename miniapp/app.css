@@ -99,7 +99,6 @@ input, textarea, select { font: inherit; color: var(--tx); }
 .top-add.alone { color: var(--acc-br); }
 .conn-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 10px var(--ok); animation: pulse 2.2s infinite; }
 .conn.off .conn-dot { background: var(--err); box-shadow: 0 0 10px var(--err); animation: none; }
-.conn.demo .conn-dot { background: var(--warn); box-shadow: 0 0 10px var(--warn); }
 @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
 .upd { font-size: 11px; color: var(--tx3); }
 
@@ -410,8 +409,9 @@ input, textarea, select { font: inherit; color: var(--tx); }
 }
 .msg .avatar { margin-top: 2px; }
 /* спор */
-.dispute { margin-top: 10px; padding: 12px; border-radius: var(--r-md); background: var(--card2); border: 1px dashed color-mix(in srgb, var(--violet) 54%, var(--line)); }
-.dispute .q { font-size: 15px; font-weight: 700; margin-bottom: 10px; }
+.dispute { margin-top: 10px; padding: 10px 12px; border-radius: var(--r-md); background: transparent; border: 1px dashed color-mix(in srgb, var(--violet) 48%, var(--line)); }
+.dispute .q { font-size: 14px; font-weight: 700; margin-bottom: 4px; color: var(--tx2); }
+.dispute .note { font-size: 12.5px; line-height: 1.45; }
 .vote-opts { display: flex; flex-direction: column; gap: 7px; }
 .vote-opt { display: flex; justify-content: space-between; align-items: center; padding: 12px 13px; border-radius: 11px; background: var(--card3); border: 1px solid var(--line2); font-size: 14.5px; font-weight: 650; }
 .vote-opt.mine { border-color: var(--violet); background: var(--violet-soft); }

@@ -120,6 +120,25 @@ def boot_report(rest: list[str]) -> int:
     return 0
 
 
+def _signals_route(rest: list[str]) -> int:
+    """Сигнал-банк: что из истории проверено, что живо для новых гипотез."""
+    as_json = core.wants_json(["rg.py", "signals"] + rest)
+    conn = core.db()
+    items = importlib.import_module("ideas").signal_bank_list(conn)
+    if as_json:
+        core.emit(items, True)
+        return 0
+    if not items:
+        print("банк сигналов пуст: записи появляются с вердиктами и снятиями")
+        return 0
+    outcome_ru = {"confirmed": "подтверждён", "refuted": "опровергнут",
+                  "partial": "частично", "reusable": "жив (переиспользуем)"}
+    rows = [[i["hid"], outcome_ru.get(i["outcome"], i["outcome"]),
+             (i["claim"] or "")[:60]] for i in items]
+    print(core.table(rows, ["источник", "статус", "сигнал"]))
+    return 0
+
+
 def main(argv: list[str]) -> int:
     core.load_env()
     cmd = argv[1] if len(argv) > 1 else "status"
@@ -164,6 +183,8 @@ def main(argv: list[str]) -> int:
             [argv[0], "submit"] + argv[2:]),
         "ideas": lambda: importlib.import_module("ideas").main(
             [argv[0], "log"] + argv[2:]),
+        "signals": lambda: _signals_route(
+            [argv[0]] + argv[2:]),
         "triage": lambda: importlib.import_module("ideas").main(
             [argv[0], "triage"] + argv[2:]),
         "hygiene": lambda: importlib.import_module("hygiene").main(
