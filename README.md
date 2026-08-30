@@ -67,15 +67,27 @@ sh install.sh
 различает: коллизия токена в двух профилях — `WARN` («запускай только один gateway
 за раз»), а токен в корневом `~/.hermes/.env` — `FAIL`. Аналогично `GPU` и
 `локальная модель` на macOS — `WARN`/`OK` (dry-run доступен), а на Windows —
-`FAIL`.
+`FAIL` только когда `config.yaml` уже установлен (шаблон `<<INSTALLER_>>` → `WARN`
+"запусти install.sh"). Логи не содержат `nvidia-smi` ошибок как `FAIL` на Windows
+когда карта есть — `gpu.snapshot()` возвращает `OK` с `RTX 5090: свободно XX GB`.
 
 **Обновление вручную.** Не используй `rsync --exclude=config.yaml --exclude=.env`:
 он сохраняет onboarding-конфиг `{'onboarding':{'seen':...}}` с капсами `0/0` и
 пустой моделью, из-за чего `governor` падает в `unsafe cap` и `selfcheck` даёт
 `FAIL`. Правильно — `hermes profile update` или `git pull` + `sh install.sh` /
 `install.ps1`, который перезапишет `config.yaml` из шаблона с капсами `2/1`.
+На Windows после `install.ps1` с GPU: `selfcheck` → `GPU OK`, `governor OK`,
+`model OK` (если Ollama/qwen3:27b) — контур rock.
 
-Подробно: [docs/INSTALL-windows.md](docs/INSTALL-windows.md), [docs/INSTALL-macos.md](docs/INSTALL-macos.md).
+**Cron:** 5 заданий (`dispatcher`, `research-loop`, `daily-digest`, `weekly-recalib`,
+`hygiene`) используют `command` (`python tools/rg.py ...`), а не `script`. Если
+создаёшь свой `script`-джоб, путь должен быть относительным к
+`~/.hermes/scripts/` (резолвится как `HERMES_HOME/scripts/`, где `HERMES_HOME` =
+`/Users/.../.hermes/profiles/researchagen`). Ошибка "script path must be relative
+to ~/.hermes/scripts/" — передай только имя файла, например `cron_dispatcher.sh`,
+и положи файл в `HERMES_HOME/scripts/`.
+
+Подробно: [docs/INSTALL-windows.md](docs/INSTALL-windows.md), [docs/INSTALL-macos.md](docs/INSTALL-macos.md), [docs/OPERATIONS.md](docs/OPERATIONS.md).
 
 ## Запуск
 
