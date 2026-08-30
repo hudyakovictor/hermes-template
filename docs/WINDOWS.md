@@ -13,7 +13,45 @@
 
 Dual-platform правило: отсутствие данных другой ОС не считается ошибкой. На Windows `production` без `nvidia-smi` — FAIL, на macOS — WARN/OK dry-run.
 
-## 1. Установка с нуля (PowerShell) — только токен и API
+## 1. Установка с нуля — всё уже установлено, только токен и API
+
+> **Проект уже предустановлен**: все `tools/`, `skills/`, `cron/`, `config.yaml`, `state/` создаются авто. Остаётся только профиль (путь) и токены.
+
+### Вариант A — in-place (без копирования в Hermes, прямо из клона)
+
+Самый быстрый — для Windows prod с RTX 5090, когда не нужен отдельный профиль Hermes:
+
+```powershell
+git clone https://github.com/<ваш-логин>/researchagen
+cd researchagen
+copy .env.EXAMPLE .env
+# вставь в .env: TELEGRAM_BOT_TOKEN=123:abc
+# остальное авто: chat_id/user_id из getUpdates, модель Ollama http://localhost:11434/v1
+
+python tools/selfcheck.py all
+python tools/rg.py status
+python tools/rg.py audit --no-coverage  # 80/80
+python tools/rg.py dr --iterations 1
+```
+
+Или одной командой:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\install.ps1 -BotToken "123:abc" -InPlace -NonInteractive
+# создаст .env в корне проекта, state/, logs/ и т.д.
+```
+
+На macOS/Linux:
+
+```bash
+sh install.sh --in-place --token=123:abc
+```
+
+В этом режиме `install.ps1` **не копирует** файлы в `~/.hermes/profiles/` и не регистрирует cron — всё уже в проекте. Для автономии запускай вручную `python tools/rg.py tick` или `researchagen gateway start` если Hermes есть.
+
+### Вариант B — профиль Hermes (рекомендуется для прод)
+
+## 1. Установка с нуля (PowerShell) — только токен и API (профиль)
 
 Теперь быстрый режим по умолчанию: спрашивает **только** `TELEGRAM_BOT_TOKEN` и модель API, остальное авто.
 

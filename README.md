@@ -39,7 +39,37 @@ hermes profile install github.com/<ваш-логин>/researchagen --alias
 
 Затем в каталоге профиля запустите установщик, чтобы заполнить токен, модель и лимиты.
 
-### Вариант 2 — прямо из терминала
+### Вариант 0 — всё уже установлено, только токен (in-place, без Hermes)
+
+Проект уже содержит все инструменты, скиллы, cron, конфиг. Достаточно токена:
+
+```powershell
+git clone https://github.com/<ваш-логин>/researchagen
+cd researchagen
+# создай .env из примера и вставь токен
+copy .env.EXAMPLE .env
+# отредактируй .env: TELEGRAM_BOT_TOKEN=123:abc
+# (chat_id/user_id определятся авто через getUpdates, остальное — дефолты Ollama)
+python tools/selfcheck.py all
+python tools/rg.py status
+python tools/rg.py audit --no-coverage  # 80/80
+```
+
+Или одной командой:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\install.ps1 -BotToken "123:abc" -InPlace -NonInteractive
+```
+
+На macOS/Linux:
+
+```bash
+sh install.sh --in-place --token=123:abc
+```
+
+В этом режиме ничего не копируется в `~/.hermes/profiles/` — всё работает прямо из клона. Cron можно запускать вручную `python tools/rg.py tick` или через `researchagen gateway start` если Hermes установлен.
+
+### Вариант 2 — прямо из терминала (профиль Hermes)
 
 Windows (PowerShell) — быстрый режим (только токен и API):
 

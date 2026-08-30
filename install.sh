@@ -23,15 +23,22 @@ MODEL_BASE_ARG=""
 MODEL_NAME_ARG=""
 MODEL_KEY_ARG=""
 
+INPLACE=0
 for arg in "$@"; do
   case "$arg" in
     --full) FULL=1 ;;
+    --in-place) INPLACE=1 ;;
     --token=*) BOT_TOKEN_ARG="${arg#--token=}" ;;
     --model-base=*) MODEL_BASE_ARG="${arg#--model-base=}" ;;
     --model-name=*) MODEL_NAME_ARG="${arg#--model-name=}" ;;
     --model-key=*) MODEL_KEY_ARG="${arg#--model-key=}" ;;
   esac
 done
+
+if [ "$INPLACE" = "1" ]; then
+  TARGET="$SRC_DIR"
+  say "${CYAN}  Режим: in-place — всё уже установлено в проекте, только .env${OFF}"
+fi
 
 say() { printf '%s\n' "$1"; }
 hr() { say "${DIM}------------------------------------------------------------${OFF}"; }
@@ -253,17 +260,24 @@ say ""
 say "${BOLD}Шаг 6/6 — установка${OFF}"
 mkdir -p "$TARGET" || { bad "Не удалось создать $TARGET"; exit 1; }
 
-for d in tools skills skill-bundles cron hooks docs tests hypotheses signals experiments inbox memory reports results logs state; do
-	mkdir -p "$TARGET/$d"
-done
+if [ "$INPLACE" = "1" ] || [ "$TARGET" = "$SRC_DIR" ]; then
+  ok "In-place: файлы уже в проекте, копирование пропущено"
+  for d in hypotheses signals experiments inbox memory reports results logs state; do
+    mkdir -p "$TARGET/$d"
+  done
+else
+  for d in tools skills skill-bundles cron hooks docs tests hypotheses signals experiments inbox memory reports results logs state; do
+  	mkdir -p "$TARGET/$d"
+  done
 
-for f in MISSION.md SOUL.md .hermes.md FOCUS.md distribution.yaml .env.EXAMPLE .gitignore README.md LICENSE; do
-	[ -f "$SRC_DIR/$f" ] && cp "$SRC_DIR/$f" "$TARGET/$f"
-done
-for d in tools skills skill-bundles cron hooks docs tests; do
-	[ -d "$SRC_DIR/$d" ] && cp -R "$SRC_DIR/$d/." "$TARGET/$d/" 2>/dev/null
-done
-ok "Файлы разложены"
+  for f in MISSION.md SOUL.md .hermes.md FOCUS.md distribution.yaml .env.EXAMPLE .gitignore README.md LICENSE; do
+  	[ -f "$SRC_DIR/$f" ] && cp "$SRC_DIR/$f" "$TARGET/$f"
+  done
+  for d in tools skills skill-bundles cron hooks docs tests; do
+  	[ -d "$SRC_DIR/$d" ] && cp -R "$SRC_DIR/$d/." "$TARGET/$d/" 2>/dev/null
+  done
+  ok "Файлы разложены"
+fi
 
 # config.yaml
 "$PY" - "$SRC_DIR/config.yaml" "$TARGET/config.yaml" <<PYEOF "$PLATFORM" "$DEBUG_MODE" "$MODEL_NAME" "$MODEL_BASE" "$GPU_FREE" "$DAILY_BUDGET" "$APPROVAL" "$AUTOLAUNCH_VAL"
@@ -304,14 +318,20 @@ umask 077
 chmod 600 "$TARGET/.env" 2>/dev/null
 ok ".env записан (права 600)"
 
-if [ -d "$SRC_DIR/skills" ]; then
-	mkdir -p "$HERMES_ROOT/skills" "$HERMES_ROOT/skill-bundles"
-	cp -R "$SRC_DIR/skills/." "$HERMES_ROOT/skills/" 2>/dev/null
-	[ -f "$SRC_DIR/skill-bundles/research-os.yaml" ] && cp "$SRC_DIR/skill-bundles/research-os.yaml" "$HERMES_ROOT/skill-bundles/"
-	ok "Скиллы и комплект research-os установлены"
+if [ "$INPLACE" = "1" ]; then
+  ok "In-place: скиллы уже в проекте, установка в Hermes пропущена"
+else
+  if [ -d "$SRC_DIR/skills" ]; then
+  	mkdir -p "$HERMES_ROOT/skills" "$HERMES_ROOT/skill-bundles"
+  	cp -R "$SRC_DIR/skills/." "$HERMES_ROOT/skills/" 2>/dev/null
+  	[ -f "$SRC_DIR/skill-bundles/research-os.yaml" ] && cp "$SRC_DIR/skill-bundles/research-os.yaml" "$HERMES_ROOT/skill-bundles/"
+  	ok "Скиллы и комплект research-os установлены"
+  fi
 fi
 
-if [ "$HAS_HERMES" = "1" ]; then
+if [ "$INPLACE" = "1" ]; then
+  ok "In-place: cron не регистрируется, используй python tools/rg.py tick"
+elif [ "$HAS_HERMES" = "1" ]; then
 	"$PY" - "$SRC_DIR/cron" "$TG_CHAT" "$TG_THREAD" "$TARGET" <<'PYEOF'
 import json, os, subprocess, sys
 cron_dir, chat, thread, workdir = sys.argv[1:5]

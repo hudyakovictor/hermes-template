@@ -22,7 +22,8 @@ param(
     [string]$ModelName = "",
     [string]$ModelKey = "",
     [switch]$Full,
-    [switch]$NonInteractive
+    [switch]$NonInteractive,
+    [switch]$InPlace
 )
 
 $ErrorActionPreference = 'Stop'
@@ -144,7 +145,12 @@ if ($IsLinux) { $Platform = 'linux'; $DebugMode = 'false' }
 
 $defaultRoot = if ($env:HERMES_HOME) { $env:HERMES_HOME } else { Join-Path $env:USERPROFILE '.hermes' }
 $HermesRoot = $defaultRoot
-$Target = Join-Path (Join-Path $HermesRoot 'profiles') $ProfileName
+if ($InPlace) {
+    $Target = $SrcDir
+    Write-Host "  Режим: in-place — всё уже установлено в проекте, только .env" -ForegroundColor Cyan
+} else {
+    $Target = Join-Path (Join-Path $HermesRoot 'profiles') $ProfileName
+}
 
 # Лимиты по умолчанию — безопасные для RTX 5090
 $GpuFree = '6'
@@ -286,22 +292,30 @@ if (-not $NonInteractive) {
 # ------------------------------------------------------------- 6. Установка
 Write-Step 'Установка'
 
-foreach ($d in @('tools', 'skills', 'skill-bundles', 'cron', 'hooks', 'docs', 'tests',
-                 'hypotheses', 'signals', 'experiments', 'inbox', 'memory',
-                 'reports', 'results', 'logs', 'state')) {
-    New-Item -ItemType Directory -Force -Path (Join-Path $Target $d) | Out-Null
-}
+if ($InPlace -or $Target -eq $SrcDir) {
+    Write-Ok 'In-place: файлы уже в проекте, копирование пропущено'
+    foreach ($d in @('hypotheses', 'signals', 'experiments', 'inbox', 'memory',
+                     'reports', 'results', 'logs', 'state')) {
+        New-Item -ItemType Directory -Force -Path (Join-Path $Target $d) | Out-Null
+    }
+} else {
+    foreach ($d in @('tools', 'skills', 'skill-bundles', 'cron', 'hooks', 'docs', 'tests',
+                     'hypotheses', 'signals', 'experiments', 'inbox', 'memory',
+                     'reports', 'results', 'logs', 'state')) {
+        New-Item -ItemType Directory -Force -Path (Join-Path $Target $d) | Out-Null
+    }
 
-foreach ($f in @('MISSION.md', 'SOUL.md', '.hermes.md', 'FOCUS.md', 'distribution.yaml',
-                 '.env.EXAMPLE', '.gitignore', 'README.md', 'LICENSE')) {
-    $p = Join-Path $SrcDir $f
-    if (Test-Path $p) { Copy-Item $p (Join-Path $Target $f) -Force }
+    foreach ($f in @('MISSION.md', 'SOUL.md', '.hermes.md', 'FOCUS.md', 'distribution.yaml',
+                     '.env.EXAMPLE', '.gitignore', 'README.md', 'LICENSE')) {
+        $p = Join-Path $SrcDir $f
+        if (Test-Path $p) { Copy-Item $p (Join-Path $Target $f) -Force }
+    }
+    foreach ($d in @('tools', 'skills', 'skill-bundles', 'cron', 'hooks', 'docs', 'tests')) {
+        $p = Join-Path $SrcDir $d
+        if (Test-Path $p) { Copy-Item (Join-Path $p '*') (Join-Path $Target $d) -Recurse -Force }
+    }
+    Write-Ok 'Файлы разложены'
 }
-foreach ($d in @('tools', 'skills', 'skill-bundles', 'cron', 'hooks', 'docs', 'tests')) {
-    $p = Join-Path $SrcDir $d
-    if (Test-Path $p) { Copy-Item (Join-Path $p '*') (Join-Path $Target $d) -Recurse -Force }
-}
-Write-Ok 'Файлы разложены'
 
 # config.yaml — подстановка без внешних YAML-библиотек
 $cfgSrc = Join-Path $SrcDir 'config.yaml'
@@ -350,20 +364,26 @@ try {
     Write-Warn 'Не удалось сузить ACL - проверьте права вручную'
 }
 
-# Скиллы и бандлы в общие каталоги Hermes
-$skillsSrc = Join-Path $SrcDir 'skills'
-if (Test-Path $skillsSrc) {
-    $skillsDst = Join-Path $HermesRoot 'skills'
-    $bundlesDst = Join-Path $HermesRoot 'skill-bundles'
-    New-Item -ItemType Directory -Force -Path $skillsDst, $bundlesDst | Out-Null
-    Copy-Item (Join-Path $skillsSrc '*') $skillsDst -Recurse -Force
-    $bundle = Join-Path $SrcDir 'skill-bundles\research-os.yaml'
-    if (Test-Path $bundle) { Copy-Item $bundle $bundlesDst -Force }
-    Write-Ok 'Скиллы и комплект research-os установлены'
+# Скиллы и бандлы в общие каталоги Hermes (пропускается в in-place)
+if (-not $InPlace) {
+    $skillsSrc = Join-Path $SrcDir 'skills'
+    if (Test-Path $skillsSrc) {
+        $skillsDst = Join-Path $HermesRoot 'skills'
+        $bundlesDst = Join-Path $HermesRoot 'skill-bundles'
+        New-Item -ItemType Directory -Force -Path $skillsDst, $bundlesDst | Out-Null
+        Copy-Item (Join-Path $skillsSrc '*') $skillsDst -Recurse -Force
+        $bundle = Join-Path $SrcDir 'skill-bundles\research-os.yaml'
+        if (Test-Path $bundle) { Copy-Item $bundle $bundlesDst -Force }
+        Write-Ok 'Скиллы и комплект research-os установлены'
+    }
+} else {
+    Write-Ok 'In-place: скиллы уже в проекте, установка в Hermes пропущена'
 }
 
-# Cron-задачи
-if ($HasHermes) {
+# Cron-задачи (пропускается в in-place, т.к. всё уже в проекте)
+if ($InPlace) {
+    Write-Ok 'In-place: cron не регистрируется, используй python tools/rg.py tick'
+} elseif ($HasHermes) {
     $cronDir = Join-Path $SrcDir 'cron'
     if (Test-Path $cronDir) {
         foreach ($jf in (Get-ChildItem $cronDir -Filter *.json | Sort-Object Name)) {

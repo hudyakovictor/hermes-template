@@ -6,6 +6,7 @@
 
   python tools/rg.py status | queue | next | tick | digest | weekly | doctor | calib
   python tools/rg.py bottom run --iterations 1
+  python tools/rg.py dr --iterations 1            # deep-research цикл (skill dr)
   python tools/rg.py add "текст идеи" [--signals 3 --hours 4 ...]
   python tools/rg.py launch H-003 [--level L1]
   python tools/rg.py verdict H-003 --kind confirmed --actual 11.4 ...
@@ -21,7 +22,7 @@
   python tools/rg.py ideas [--verdict rejected]   # очередь идей и лог отклонённых
   python tools/rg.py hygiene                      # ночная уборка состояния
   python tools/rg.py priors search "запрос"       # prior-art по 6 источникам
-  python tools/rg.py audit                        # 30 анализов функционала
+  python tools/rg.py audit                        # 80 анализов функционала
 """
 
 from __future__ import annotations
@@ -195,6 +196,12 @@ def main(argv: list[str]) -> int:
             [argv[0]] + argv[2:]),
         "board": lambda: importlib.import_module("board").main(
             [argv[0], "show"] + argv[2:]),
+        "dr": lambda: importlib.import_module("audit").main(
+            [argv[0], "run"] + argv[2:]) if False else (
+                print("dr: deep-research цикл (skill dr) — запускается cron research-loop (*/25 мин) или вручную через Hermes: hermes skill run dr\n"
+                      "Для e2e проверки: python tools/rg.py audit --no-coverage"),
+                0
+            )[1],
         "boot": lambda: boot_report(argv[2:]),
     }
     if cmd in ("help", "-h", "--help"):
