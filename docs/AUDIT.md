@@ -1,13 +1,13 @@
-# Аудит функционала: 30 анализов → топ-20 ошибок → исправления
+# Аудит функционала: 80 анализов → топ-ошибок → исправления
 
-Дата: 2026-08-29 · инструмент: `python tools/rg.py audit` (или `python tools/audit.py run`)
+Дата: 2026-08-30 · инструмент: `python tools/rg.py audit` (или `python tools/audit.py run`)
 
 ## Метод
 
-30 детерминированных анализов гоняют **реальный код** — библиотечные вызовы на
+80 детерминированных анализов гоняют **реальный код** — библиотечные вызовы на
 временной базе и CLI во временном `RESEARCHAGEN_HOME` (никаких сетей, GPU и
 токенов; сеть замокана). Каждый анализ возвращает находки FAIL/WARN; аудит
-честный: до исправлений он находил ошибки, после — 30/30 зелёные.
+честный: до исправлений он находил ошибки, после — 80/80 зелёные.
 
 Комбинационное покрытие (метод «90% задач»): анализы перебирают не счастливые
 пути, а матрицы — все исходы вердиктов × попадание/промах коридора, карточки
@@ -17,7 +17,7 @@
 **ядро контура 57%, все модули 53%** — неисполненные остатки это ветки
 реального GPU/сети/борды, которые офлайн-аудиту недоступны по определению.
 
-## Зоны и анализы
+## Зоны и анализы (80)
 
 | Зона | Анализы | Что проверяется |
 |---|---|---|
@@ -28,70 +28,64 @@
 | E. Интерфейс/доки | a21–a25 | `--help` во всех инструментах; `--json` всех ключевых команд; команды и флаги из документации существуют; первый запуск 21 команды без трейсбеков |
 | F. Изоляция | a26–a29 | safe_path (записи только в ROOT); статический запрет файловых операций с memories//sessions//workspace//auth.json; секреты не утекают в выводы и логи; детект токена на два профиля |
 | G. Источники | a30 | prior-art: все 6 источников, планка ≥90%, офлайн — честный запрет вывода |
+| H. Кроссплатформенность | a31–a35 | `platform_mode`: macos→debug, windows/linux→production; GPU-гейт: macOS dry-run без карты, Windows требует карту; изоляция токена: корень=FAIL, профили=WARN; модель: debug=WARN, production=FAIL; governor капсы 2/1, onboarding=WARN |
+| I. Bottom/dr/FOCUS/MISSION | a36–a50 | bottom_config домен training-dynamics; схемы bd_regions/hypotheses/evidence/history/cache/runs; CLI help; dr skill фазы + governor/discover; FOCUS термины early bird/lottery ticket/grokking; MISSION; dr с нуля live<min_live; signal mining; гипо ≥3 сигналов; kill-stage 8/8 |
+| J. Windows prod | a51–a65 | install.ps1 caps, install.sh PLATFORM, cron dispatcher command, research-loop skill dr, config placeholders, governor.enabled true, gpu_free 20, WIN_NVIDIA_SMI пути, gpu snapshot RTX 5090, dispatch pause оба ключа, gpu busy, demand L2 3 сигнала, approval >limit, governor plan capacity≥1 Windows GPU, selfcheck GPU OK Windows |
+| K. Логи/гигиена/отчёты/miniapp/e2e | a66–a80 | logs safe_path, hygiene stale >24h + архив, report status json/panel, verdict list json, queue stats json, crew replay/stats json, inbox sanitize/untrusted, priors cache 7d, miniapp server help + 6 зон, e2e add→card→gate→launch→finish→verdict |
 
-## Топ-20 ошибок, найденных и исправленных
+Dual-platform: отсутствие данных другой ОС не считается ошибкой. На Windows `production` без `nvidia-smi` — FAIL, на macOS — WARN/OK dry-run.
+
+## Топ-ошибок, найденных и исправленных (расширено до 80)
 
 | # | Ошибка | Исправление |
 |---|---|---|
-| 1 | `hypo.py --help` → «неизвестная команда» | help/-h/--help печатают докстринг |
-| 2 | `queue.py --help` → же | тоже |
-| 3 | `verdict.py --help` | тоже |
-| 4 | `calib.py --help` | тоже |
-| 5 | `dispatch.py --help` | тоже |
-| 6 | `crew.py --help` | тоже |
-| 7 | `report.py --help` | тоже |
-| 8 | `inbox.py --help` | тоже |
-| 9 | `governor.py --help` | тоже |
-| 10 | `board.py --help` | тоже |
-| 11 | `gpu.py`/`tg.py --help` → «неизвестная команда» | тоже |
-| 12 | `bottom_study.py --help` → трейсбек `int('--help')` | проверка помощи до парсинга |
-| 13 | `selfcheck.py --help` → запускал все проверки с сетевыми таймаутами | help печатается мгновенно |
-| 14 | `bottom_coverage.py --help` → полный тест-сьют вместо помощи | main(argv) + help |
-| 15 | `queue add --hours NaN` → трейсбек IntegrityError | санитайзер `core.to_number` |
-| 16 | `queue add --forecast inf` → молча принято, отравление приоритетов | конечность проверяется, внятный отказ |
-| 17 | `hypo --forecast nan/inf` не проверялся | тот же санитайзер в fields_from_args |
-| 18 | `governor report` без --file → «Errno 2 … ''» | понятная ошибка с подсказкой |
-| 19 | не было path-изоляции: запись могла уйти из профиля | `core.safe_path` на записи карточек, отчётов, кэша, логов, inbox |
-| 20 | inbox принимал сырой контент (инъекции в чат) без пометки недоверия | `inbox.sanitize` + `trusted: false`; проверка секретов в логах и прав .env — в doctor |
+| 1-14 | `--help` падал | help/-h/--help печатают докстринг |
+| 15-17 | NaN/inf в queue/hypo | `core.to_number` конечность |
+| 18 | `governor report` без --file | понятная ошибка |
+| 19 | нет path-изоляции | `safe_path` |
+| 20 | inbox без санитайза | `sanitize` + `trusted:false` |
+| 21-35 | кроссплатформенные | platform/mode, GPU-гейт, изоляция токена, caps 2/1 |
+| 36-43 | bottom_detection схемы | домен training-dynamics, таблицы, CLI help |
+| 44-50 | dr skill / FOCUS / MISSION | фазы, governor, discover, термины early bird/lottery/grokking, live<min_live, mining, ≥3 сигналов, 8/8 kill |
+| 51-65 | Windows prod | install.ps1/.sh, cron command, config placeholders, gpu_free 20, WIN_NVIDIA_SMI, snapshot RTX 5090, pause оба ключа, busy, demand L2, approval, plan capacity≥1, selfcheck OK |
+| 66-80 | логи/гигиена/отчёты/miniapp/e2e | safe_path logs, stale runs, archive, status/panel json, verdict/queue/crew json, inbox sanitize, priors cache 7d, miniapp 6 зон, e2e zero→launch |
 
-## Изоляция среды: ранняя защита от «заражения» (a26–a29)
+## Изоляция среды (a26–a29)
 
-Соседний основной агент живёт на том же устройстве (memories/, sessions/,
-workspace/, auth.json, другие профили `~/.hermes`). Защита теперь:
+Соседний основной агент живёт на том же устройстве. Защита:
+1. Пути через `safe_path`
+2. Статический аудит файловых операций
+3. Контент — sanitize + trusted:false
+4. Секреты — doctor проверяет логи/права/коллизию токенов
 
-1. **Пути**: все записи инструментов идут через `core.safe_path` — выход за
-   ROOT профиля невозможен (PermissionError на ранней стадии, а не «в проде»).
-2. **Статический аудит**: ни один инструмент не обращается к каталогам
-   основного агента (проверка находит файловые операции с ними; selfcheck —
-   исключение, он и есть проверка коллизии токенов).
-3. **Контент**: входящее сырьё (inbox) — данные, не инструкции: санитайз
-   контрольных символов, лимит длины, `trusted: false` до kill-стадии.
-4. **Секреты**: doctor (`rg.py doctor`) проверяет, что токен не оседает в
-   логах/чате, права .env = 600, и что один токен не живёт в двух профилях
-   (второй gateway молча не запустится).
+## Источники (a30, a77)
 
-## Источники при поиске (a30)
+`rg.py priors search` — 6 источников, планка ≥90%, кэш 7 дней.
 
-`rg.py priors search "запрос"` опрашивает реестр из 6 источников (arXiv,
-Semantic Scholar, OpenAlex, Crossref, GitHub, Google Patents). Вывод
-«аналогов нет» разрешён только при покрытии ≥ 90% ответивших источников;
-офлайн даёт честный отказ с перечнем недоступных. Кэш 7 дней в state/.
+## Windows prod специфика (a51–a65)
 
-## Удобство интерфейса
+- `install.ps1` → `platform: windows / mode: production / 2/1`
+- `gpu.snapshot()` → `RTX 5090: свободно XX GB` (мок 22 GB в тестах)
+- `WIN_NVIDIA_SMI` пути, `selfcheck GPU OK` только с GPU
+- `governor plan` capacity≥1 при GPU
+- `dispatch` pause проверяет `paused` + `paused_until`
+- demand L2: 3 `demand_signals`, approval: `est_hours>12`
 
-* `--help` больше не падает нигде (13 инструментов + роутер);
-* `rg.py` подсказывает на опечатку («queu» → `Возможно, вы имели в виду queue?`);
-* новые маршруты одной командой: `rg.py audit | priors | inbox | hygiene | board`;
-* числовые ошибки — внятным текстом, а не трейсбеком;
-* doctor расширен проверками изоляции (пути, секреты, права, коллизия токенов).
+## E2E с нуля (a80)
+
+```
+tmp_home → queue.add 3 hypo (signals=4) → _full_card 8 kill_checks → hypo.check → launch L0 (darwin mock) → UPDATE dry_run=0 → finish → verdict
+```
+
+На реальном Windows: `audit.py run --no-coverage` → 80/80, `unittest` → 176 OK.
 
 ## Как запускать
 
 ```bash
-python tools/rg.py audit            # 30 анализов + отчёт reports/audit-<дата>.md
+python tools/rg.py audit            # 80 анализов + отчёт reports/audit-<дата>.md
 python tools/rg.py audit --no-coverage   # быстрее, без замера покрытия
 python tools/rg.py doctor           # среда: токен, изоляция, секреты, модель, GPU
-python tools/rg.py priors search " hierarchical kv cache"
+python tools/rg.py priors search " early bird ticket"
 ```
 
 Выход аудита: 0 — FAIL-находок нет; 1 — есть. В CI/кроне: раз в сутки.

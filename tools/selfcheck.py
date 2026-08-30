@@ -71,36 +71,105 @@ def check_env() -> list[dict]:
 
 
 def check_isolation() -> list[dict]:
-    """Главный риск двухпрофильной схемы: один токен на два gateway."""
+    """Главный риск двухпрофильной схемы: один токен на два gateway.
+
+    На macOS+Windows один токен — штатная схема (INSTALL-macos.md): один бот
+    на два устройства, но gateway только в одном месте за раз. Поэтому коллизия
+    — это WARN, а не FAIL: она не ломает контур, но требует ручного контроля
+    «один gateway активен». FAIL только для корневого профиля (default), где
+    два gateway на одной машине гарантированно рвут long-polling.
+
+    Учитывает кривой HERMES_HOME: если он указывает на профиль
+    (.../.hermes/profiles/researchagen), то реальный дом — .../.hermes,
+    и проверяем оба места, исключая собственный .env.
+    """
     env = core.load_env()
     token = env.get("TELEGRAM_BOT_TOKEN", "")
     out = []
-    home = os.environ.get("HERMES_HOME") or os.path.expanduser("~/.hermes")
-    profiles_dir = os.path.join(home, "profiles")
+    raw_home = os.environ.get("HERMES_HOME") or os.path.expanduser("~/.hermes")
+    # набор домов для проверки: глобальный ~/.hermes + то, что в HERMES_HOME + вывод из RESEARCHAGEN_HOME
+    homes = set()
+    homes.add(os.path.expanduser("~/.hermes"))
+    homes.add(raw_home)
+    # если HERMES_HOME указывает внутрь profiles/, то реальный дом — до /profiles/
+    if "/profiles/" in raw_home.replace("\\", "/"):
+        # /.../.hermes/profiles/researchagen -> /.../.hermes
+        parts = raw_home.replace("\\", "/").split("/profiles/")
+        if parts[0]:
+            homes.add(parts[0])
+    # RESEARCHAGEN_HOME (core.ROOT) тоже может подсказать реальный дом
+    try:
+        root = core.ROOT
+        if "/profiles/" in root.replace("\\", "/"):
+            parts = root.replace("\\", "/").split("/profiles/")
+            if parts[0]:
+                homes.add(parts[0])
+    except Exception:
+        pass
+
     clashes = []
-    if token and os.path.isdir(profiles_dir):
-        for entry in os.listdir(profiles_dir):
-            other = os.path.join(profiles_dir, entry, ".env")
-            if not os.path.exists(other) or os.path.abspath(other) == os.path.abspath(core.ENV_PATH):
+    root_clash = False
+    seen_envs = set()
+    own_env = os.path.abspath(core.ENV_PATH)
+
+    if token:
+        for h in homes:
+            if not h or not os.path.isdir(h):
                 continue
-            try:
-                with open(other, "r", encoding="utf-8", errors="replace") as fh:
-                    if token in fh.read():
-                        clashes.append(entry)
-            except OSError:
+            profiles_dir = os.path.join(h, "profiles")
+            if os.path.isdir(profiles_dir):
+                try:
+                    for entry in os.listdir(profiles_dir):
+                        other = os.path.join(profiles_dir, entry, ".env")
+                        abs_other = os.path.abspath(other)
+                        if abs_other in seen_envs or abs_other == own_env:
+                            continue
+                        if not os.path.exists(other):
+                            continue
+                        seen_envs.add(abs_other)
+                        try:
+                            with open(other, "r", encoding="utf-8", errors="replace") as fh:
+                                if token in fh.read():
+                                    # если это наш собственный профиль, не считаем
+                                    if entry == os.path.basename(core.ROOT):
+                                        continue
+                                    clashes.append(entry)
+                        except OSError:
+                            continue
+                except OSError:
+                    pass
+            # корневой .env в этом доме
+            root_env = os.path.join(h, ".env")
+            abs_root = os.path.abspath(root_env)
+            if abs_root in seen_envs or abs_root == own_env:
                 continue
-    root_env = os.path.join(home, ".env")
-    if token and os.path.exists(root_env):
-        try:
-            with open(root_env, "r", encoding="utf-8", errors="replace") as fh:
-                if token in fh.read():
-                    clashes.append("default (корневой профиль)")
-        except OSError:
-            pass
-    out.append(_check("изоляция токена", FAIL if clashes else OK,
-                      f"тот же токен в: {', '.join(clashes)} — второй gateway не запустится"
-                      if clashes else "токен уникален среди профилей"))
-    out.append(_check("HERMES_HOME", OK, home))
+            if os.path.exists(root_env):
+                seen_envs.add(abs_root)
+                try:
+                    with open(root_env, "r", encoding="utf-8", errors="replace") as fh:
+                        if token in fh.read():
+                            # если root_env — это наш собственный .env (когда HERMES_HOME=профиль), не считаем
+                            if abs_root == own_env:
+                                continue
+                            clashes.append("default (корневой профиль)")
+                            root_clash = True
+                except OSError:
+                    pass
+
+    # дедупликация имён
+    clashes = sorted(set(clashes))
+    if root_clash:
+        state = FAIL
+        detail = f"тот же токен в: {', '.join(clashes)} — второй gateway не запустится (корневой конфликт)"
+    elif clashes:
+        state = WARN
+        detail = (f"тот же токен в: {', '.join(clashes)} — допустимо для macOS+Windows, "
+                  "но запускай только один gateway за раз (см. INSTALL-macos.md)")
+    else:
+        state = OK
+        detail = "токен уникален среди профилей"
+    out.append(_check("изоляция токена", state, detail))
+    out.append(_check("HERMES_HOME", OK, raw_home))
     return out
 
 
@@ -139,8 +208,9 @@ def check_logs_secrets() -> list[dict]:
             continue
         for name in os.listdir(dirname):
             try:
-                blob = open(os.path.join(dirname, name), encoding="utf-8",
-                            errors="replace").read()
+                with open(os.path.join(dirname, name), encoding="utf-8",
+                          errors="replace") as fh:
+                    blob = fh.read()
             except OSError:
                 continue
             if token in blob:
@@ -178,8 +248,15 @@ def check_model() -> list[dict]:
     env = core.load_env()
     base = (env.get("RESEARCHAGEN_MODEL_BASE_URL") or "").rstrip("/")
     name = env.get("RESEARCHAGEN_MODEL_NAME", "")
+    config = core.load_config()
+    _, is_debug = core.platform_mode(config)
     if not base:
-        return [_check("локальная модель", FAIL, "RESEARCHAGEN_MODEL_BASE_URL пуст")]
+        # на macOS/debug модель может отсутствовать для dry-run отладки очереди
+        state = WARN if is_debug else FAIL
+        return [_check("локальная модель", state,
+                       "RESEARCHAGEN_MODEL_BASE_URL пуст — "
+                       + ("dry-run режим, модель опциональна" if is_debug
+                          else "нужен для L1+ прогонов"))]
     url = base + "/models"
     try:
         with urllib.request.urlopen(url, timeout=8) as resp:
@@ -192,12 +269,19 @@ def check_model() -> list[dict]:
         return [_check("локальная модель", OK, f"{name} доступна на {base}")]
     except (urllib.error.URLError, urllib.error.HTTPError, OSError,
             json.JSONDecodeError, TimeoutError) as exc:
-        return [_check("локальная модель", FAIL,
-                       f"{base} не отвечает ({exc}). Запусти ollama serve и проверь порт.")]
+        state = WARN if is_debug else FAIL
+        return [_check("локальная модель", state,
+                       f"{base} не отвечает ({exc}). "
+                       + ("dry-run доступен, но /dr требует модель" if is_debug
+                          else "Запусти ollama serve и проверь порт."))]
 
 
 def check_gpu() -> list[dict]:
-    snap = gpu.snapshot()
+    config = core.load_config()
+    # onboarding — профиль ещё не установлен, GPU-чек не критичен
+    if "researchagen" not in config and "onboarding" in config:
+        return [_check("GPU", WARN, "профиль в onboarding-состоянии — GPU-гейт проверится после install.sh")]
+    snap = gpu.snapshot(config)
     if snap["available"]:
         state = OK if snap["free_gb"] >= snap["required_gb"] else WARN
         return [_check("GPU", state,
@@ -205,6 +289,12 @@ def check_gpu() -> list[dict]:
                        f"из {snap['best']['total_gb']:.1f} GB")]
     if snap["debug"]:
         return [_check("GPU", OK, "macOS/debug: эксперименты идут как dry-run — штатно")]
+    # в шаблоне (config.yaml с <<INSTALLER_>>) platform_mode падает в linux/production,
+    # но nvidia-smi отсутствует — это не ошибка первого запуска, а отсутствие GPU
+    plat_raw = str(core.cfg("researchagen.platform", "", config) or "")
+    if plat_raw.startswith("<<") or not plat_raw:
+        return [_check("GPU", WARN,
+                       "GPU не обнаружен, config.yaml ещё шаблонный — запусти install.sh и проверь nvidia-smi")]
     return [_check("GPU", FAIL, "nvidia-smi не найден, а режим production")]
 
 
@@ -236,6 +326,11 @@ def check_python() -> list[dict]:
 
 def check_governor() -> list[dict]:
     config = core.load_config()
+    # если профиль ещё в onboarding (hermes profile create без install.sh),
+    # config.yaml содержит только onboarding — это не unsafe, а незавершённая установка
+    if "researchagen" not in config and "onboarding" in config:
+        return [_check("governor", WARN,
+                       "профиль в onboarding-состоянии — запусти install.sh для записи delegation caps")]
     enabled = governor.enabled(config)
     max_children = int(core.cfg("delegation.max_concurrent_children", 0, config) or 0)
     max_depth = int(core.cfg("delegation.max_spawn_depth", 0, config) or 0)

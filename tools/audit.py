@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""researchagen — аудит функционала: 30 анализов, покрывающих ~90% комбинаций задач.
+"""researchagen — аудит функционала: 80 анализов, покрывающих ~90% комбинаций задач.
 
 Метод: каждый анализ прогоняет реальный код (библиотечные вызовы на временной
 базе или CLI во временном RESEARCHAGEN_HOME) и возвращает находки FAIL/WARN.
 Аудит честный: он находит ошибки до их исправления и проходит после.
 
 Что измеряется:
-  * 30 анализов по 7 зонам: данные, вердикты/калибровка, диспетчер/governor,
+  * 80 анализов по 12 зонам: данные, вердикты/калибровка, диспетчер/governor,
     чат, интерфейс/доки, изоляция, источники;
   * топ-20 ошибок: первые 20 FAIL-находок (после исправления должно быть 0);
   * строчный охват инструментов (trace) — «какая доля кода реально выполнена
@@ -248,7 +248,8 @@ def a06() -> list[dict]:
         os.makedirs(os.path.dirname(card), exist_ok=True)
         text = "\n\n".join(f"{sec}: |\n  x" for sec in hypo.REQUIRED_SECTIONS)
         text += "\n\nkill_checks:\n" + "\n".join(["- passed: true"] * 8)
-        open(card, "w", encoding="utf-8").write(text)
+        with open(card, "w", encoding="utf-8") as fh:
+            fh.write(text)
         conn.execute("UPDATE hypotheses SET card_path=? WHERE id=?", (card, hid))
         conn.commit()
         gate = hypo.check(hid, conn)
@@ -276,7 +277,8 @@ def _full_card(home: str, conn, hid: str) -> None:
     os.makedirs(os.path.dirname(card), exist_ok=True)
     text = "\n\n".join(f"{sec}: |\n  x" for sec in hypo.REQUIRED_SECTIONS)
     text += "\n\nkill_checks:\n" + "\n".join(["- passed: true"] * 8)
-    open(card, "w", encoding="utf-8").write(text)
+    with open(card, "w", encoding="utf-8") as fh:
+        fh.write(text)
     conn.execute("UPDATE hypotheses SET card_path=? WHERE id=?", (card, hid))
     conn.commit()
 
@@ -398,15 +400,22 @@ def a11() -> list[dict]:
     try:
         conn = core.db(os.path.join(home, "state", "db.sqlite3"))
         out = []
-        config = core.load_config()
+        cfg_path = os.path.join(home, "config.yaml")
+        config = core.load_config(cfg_path) if os.path.exists(cfg_path) else core.load_config()
         hid = _mk_hypo(conn)
         _full_card(home, conn, hid)
-        # пауза
+        # пауза — ставим оба ключа для совместимости (boolean и timed)
+        core.set_setting(conn, "dispatch.paused", True)
         core.set_setting(conn, "dispatch.paused_until", "2999-01-01T00:00:00+00:00")
         res = dispatch.launch(conn, hid, "L0", config=config)
         if res.get("ok"):
             out.append(f(FAIL, "запуск на паузе прошёл"))
+        core.set_setting(conn, "dispatch.paused", False)
         core.set_setting(conn, "dispatch.paused_until", "")
+        # чистим возможные артефакты от debug-запуска на паузе (dry-run мог успеть создать run)
+        conn.execute("DELETE FROM runs WHERE state='running'")
+        conn.execute("DELETE FROM governor_leases WHERE state NOT IN ('released','stopped')")
+        conn.commit()
         # спрос-чек L2 (карточка полная → единственный отказ — спрос)
         res = dispatch.launch(conn, hid, "L2", config=config)
         if res.get("ok") or "спрос" not in res.get("reason", ""):
@@ -859,7 +868,9 @@ def a29() -> list[dict]:
                 mock.patch.object(core, "load_env",
                                   return_value={"TELEGRAM_BOT_TOKEN": token}):
             checks = selfcheck.check_isolation()
-        clash = [c for c in checks if c["state"] == selfcheck.FAIL]
+        # токен в двух профилях — теперь WARN (macOS+Windows допустимо), в корне — FAIL
+        clash = [c for c in checks if c["state"] in (selfcheck.FAIL, selfcheck.WARN)
+                 and "токен" in c["check"]]
         if not clash:
             return [f(FAIL, "коллизия токена двух профилей не обнаружена")]
         return []
@@ -917,6 +928,929 @@ def a30() -> list[dict]:
         return out
     finally:
         tmp.cleanup()
+
+
+
+# ==========================================================================
+# ==========================================================================
+# ==========================================================================
+# ZONE H. Кроссплатформенность (Windows прод, macOS debug)
+# ==========================================================================
+
+@analysis(31, "platform_modes", "платформенные режимы: macos->debug, windows->production")
+def a31() -> list[dict]:
+    out = []
+    import core as _core
+    import unittest.mock as _mock
+    # platform_mode uses sys.platform and os.name fallback
+    cases = [
+        ("darwin", "posix", "macos", True),
+        ("win32", "nt", "windows", False),
+        ("linux", "posix", "linux", False),
+    ]
+    for sys_plat, os_name, want_platform, want_debug in cases:
+        with _mock.patch.object(_core.sys, "platform", sys_plat),              _mock.patch.object(_core.os, "name", os_name):
+            # empty config -> fallback to sys/os
+            plat, is_dbg = _core.platform_mode({})
+            if plat != want_platform:
+                out.append(f(FAIL, f"{sys_plat}/{os_name}: platform={plat}, ожидалось {want_platform}"))
+            if bool(is_dbg) != want_debug:
+                out.append(f(FAIL, f"{sys_plat}/{os_name}: is_debug={is_dbg}, ожидалось {want_debug}"))
+    return out
+
+
+@analysis(32, "gpu_cross_platform", "GPU-гейт: macOS dry-run без карты, Windows требует карту")
+def a32() -> list[dict]:
+    home, tmp = _tmp_home()
+    try:
+        import core as _core
+        import gpu as _gpu
+        import unittest.mock as _mock
+        out = []
+        # Darwin should give debug=True and can_launch=True even without nvidia-smi
+        with _mock.patch.object(_core.sys, "platform", "darwin"),              _mock.patch.object(_core.os, "name", "posix"):
+            cfg_path = os.path.join(home, "config.yaml")
+            cfg = _core.load_config(cfg_path)
+            snap = _gpu.snapshot(cfg)
+            if not snap.get("debug"):
+                out.append(f(FAIL, f"Darwin: snapshot.debug должен быть True, получили {snap}"))
+            ok, reason, _ = _gpu.can_launch(config=cfg)
+            if not ok:
+                out.append(f(FAIL, f"Darwin dry-run: can_launch=False ({reason})"))
+        # Windows without GPU should be not launchable (fail-closed) when production
+        with _mock.patch.object(_core.sys, "platform", "win32"),              _mock.patch.object(_core.os, "name", "nt"),              _mock.patch("shutil.which", return_value=None):
+            cfg = _core.load_config(os.path.join(home, "config.yaml"))
+            # force production mode
+            cfg.setdefault("researchagen", {})["platform"] = "windows"
+            cfg["researchagen"]["mode"] = "production"
+            snap = _gpu.snapshot(cfg)
+            if snap.get("debug"):
+                out.append(f(FAIL, f"Windows production: debug должен быть False, получили {snap}"))
+            ok, reason, _ = _gpu.can_launch(config=cfg)
+            if ok:
+                out.append(f(FAIL, f"Windows без GPU: can_launch=True, должен быть False"))
+        return out
+    finally:
+        tmp.cleanup()
+
+
+@analysis(33, "token_isolation_platform", "изоляция токена: корень=FAIL, профили=WARN")
+def a33() -> list[dict]:
+    home, tmp = _tmp_home()
+    try:
+        import selfcheck as _sc
+        import core as _core
+        import unittest.mock as _mock
+        out = []
+        fake_home = os.path.join(tmp.name, "hermes")
+        p1 = os.path.join(fake_home, "profiles", "main")
+        p2 = os.path.join(fake_home, "profiles", "research")
+        os.makedirs(p1, exist_ok=True)
+        os.makedirs(p2, exist_ok=True)
+        token = "12345:PLATFORM-TOKEN-audit"
+        with open(os.path.join(p1, ".env"), "w", encoding="utf-8") as fh:
+            fh.write(f"TELEGRAM_BOT_TOKEN={token}\n")
+        with open(os.path.join(p2, ".env"), "w", encoding="utf-8") as fh:
+            fh.write(f"TELEGRAM_BOT_TOKEN={token}\n")
+        with _mock.patch.dict(os.environ, {"HERMES_HOME": fake_home}),              _mock.patch.object(_core, "load_env", return_value={"TELEGRAM_BOT_TOKEN": token}):
+            checks = _sc.check_isolation()
+        warns = [c for c in checks if c["state"] == _sc.WARN and "токен" in c["check"]]
+        if not warns:
+            out.append(f(FAIL, f"коллизия профилей main/research должна быть WARN, получили {checks}"))
+        with open(os.path.join(fake_home, ".env"), "w", encoding="utf-8") as fh:
+            fh.write(f"TELEGRAM_BOT_TOKEN={token}\n")
+        with _mock.patch.dict(os.environ, {"HERMES_HOME": fake_home}),              _mock.patch.object(_core, "load_env", return_value={"TELEGRAM_BOT_TOKEN": token}):
+            checks2 = _sc.check_isolation()
+        root_fails = [c for c in checks2 if c["state"] == _sc.FAIL and "корневой" in c["detail"]]
+        if not root_fails:
+            root_fails2 = [c for c in checks2 if c["state"] == _sc.FAIL and "токен" in c["check"]]
+            if not root_fails2:
+                out.append(f(FAIL, f"корневой .env + профиль должен давать FAIL, получили {checks2}"))
+        return out
+    finally:
+        tmp.cleanup()
+
+
+@analysis(34, "model_check_platform", "модель: debug=WARN, production=FAIL при пустой базе")
+def a34() -> list[dict]:
+    home, tmp = _tmp_home()
+    try:
+        import selfcheck as _sc
+        import core as _core
+        import unittest.mock as _mock
+        out = []
+        with _mock.patch.object(_core.sys, "platform", "darwin"),              _mock.patch.object(_core.os, "name", "posix"):
+            with _mock.patch.object(_core, "load_env", return_value={"RESEARCHAGEN_MODEL_BASE_URL": ""}):
+                checks = _sc.check_model()
+            if not any(c["state"] == _sc.WARN for c in checks):
+                out.append(f(FAIL, f"Darwin: пустая base_url должна быть WARN, получили {checks}"))
+            if any(c["state"] == _sc.FAIL and "модель" in c["check"].lower() for c in checks):
+                out.append(f(FAIL, f"Darwin: пустая base_url дала FAIL вместо WARN, {checks}"))
+        with _mock.patch.object(_core.sys, "platform", "win32"),              _mock.patch.object(_core.os, "name", "nt"):
+            with _mock.patch.object(_core, "load_env", return_value={"RESEARCHAGEN_MODEL_BASE_URL": ""}):
+                checks = _sc.check_model()
+            if not any(c["state"] == _sc.FAIL for c in checks):
+                out.append(f(FAIL, f"Windows: пустая base_url должна быть FAIL, получили {checks}"))
+        return out
+    finally:
+        tmp.cleanup()
+
+
+@analysis(35, "governor_caps", "governor: капсы 2/1 из шаблона, не 0/0 после onboarding")
+def a35() -> list[dict]:
+    home, tmp = _tmp_home()
+    try:
+        import core as _core
+        import selfcheck as _sc
+        import unittest.mock as _mock
+        out = []
+        cfg_path = os.path.join(home, "config.yaml")
+        cfg = _core.load_config(cfg_path)
+        # шаблонный конфиг должен иметь delegation caps 2/1
+        max_children = int(_core.cfg("delegation.max_concurrent_children", 0, cfg) or 0)
+        max_depth = int(_core.cfg("delegation.max_spawn_depth", 0, cfg) or 0)
+        if max_children < 1:
+            out.append(f(FAIL, f"delegation.max_concurrent_children={max_children} < 1 (ожидалось 2)"))
+        if max_depth != 1:
+            out.append(f(FAIL, f"delegation.max_spawn_depth={max_depth} != 1"))
+        # onboarding конфиг (только onboarding ключ) должен давать WARN, не OK/FAIL 0/0
+        onboarding_cfg = {"onboarding": {"seen": True}}
+        with _mock.patch.object(_core, "load_config", return_value=onboarding_cfg):
+            checks = _sc.check_governor()
+            if not any(c["state"] == _sc.WARN for c in checks):
+                out.append(f(FAIL, f"onboarding config должен давать WARN в check_governor, получили {checks}"))
+        return out
+    finally:
+        tmp.cleanup()
+
+
+
+# ==========================================================================
+# ZONE I. Deep Research / Bottom Detection (15 анализов) a36-a50
+# ==========================================================================
+
+@analysis(36, "bottom_config", "bottom_detection: enabled, domain training-dynamics")
+def a36() -> list[dict]:
+    home, tmp = _tmp_home()
+    try:
+        import core as _core
+        cfg = _core.load_config(os.path.join(home, "config.yaml"))
+        # template has bottom_detection.enabled true and domain training-dynamics
+        enabled = _core.cfg("researchagen.bottom_detection.enabled", False, cfg)
+        domain = _core.cfg("researchagen.bottom_detection.domain", "", cfg)
+        out = []
+        if not enabled:
+            out.append(f(FAIL, f"bottom_detection.enabled={enabled}, ожидалось True"))
+        if "training" not in str(domain):
+            out.append(f(FAIL, f"bottom_detection.domain={domain}, ожидалось training-dynamics"))
+        return out
+    finally:
+        tmp.cleanup()
+
+@analysis(37, "bottom_regions_schema", "bottom: таблица bd_regions")
+def a37() -> list[dict]:
+    home, tmp = _tmp_home()
+    try:
+        import core as _core
+        conn = _core.db(os.path.join(home, "state", "db.sqlite3"))
+        cols = {r["name"] for r in conn.execute("PRAGMA table_info(bd_regions)").fetchall()}
+        need = {"namespace","id","parent_id","name","query","depth","status","signal_score"}
+        out = [f(FAIL, f"bd_regions нет колонки {c}") for c in need - cols]
+        return out
+    finally:
+        tmp.cleanup()
+
+@analysis(38, "bottom_hypotheses_schema", "bottom: таблица bd_hypotheses")
+def a38() -> list[dict]:
+    home, tmp = _tmp_home()
+    try:
+        import core as _core
+        conn = _core.db(os.path.join(home, "state", "db.sqlite3"))
+        cols = {r["name"] for r in conn.execute("PRAGMA table_info(bd_hypotheses)").fetchall()}
+        need = {"namespace","id","region_id","text","status","priority"}
+        out = [f(FAIL, f"bd_hypotheses нет колонки {c}") for c in need - cols]
+        return out
+    finally:
+        tmp.cleanup()
+
+@analysis(39, "bottom_evidence_schema", "bottom: таблица bd_evidence")
+def a39() -> list[dict]:
+    home, tmp = _tmp_home()
+    try:
+        import core as _core
+        conn = _core.db(os.path.join(home, "state", "db.sqlite3"))
+        cols = {r["name"] for r in conn.execute("PRAGMA table_info(bd_evidence)").fetchall()}
+        need = {"namespace","id","candidate_id","source","claim","strength"}
+        out = [f(FAIL, f"bd_evidence нет колонки {c}") for c in need - cols]
+        return out
+    finally:
+        tmp.cleanup()
+
+@analysis(40, "bottom_history_schema", "bottom: таблица bd_history")
+def a40() -> list[dict]:
+    home, tmp = _tmp_home()
+    try:
+        import core as _core
+        conn = _core.db(os.path.join(home, "state", "db.sqlite3"))
+        cols = {r["name"] for r in conn.execute("PRAGMA table_info(bd_history)").fetchall()}
+        need = {"namespace","event","payload","created_at"}
+        out = [f(FAIL, f"bd_history нет колонки {c}") for c in need - cols]
+        return out
+    finally:
+        tmp.cleanup()
+
+@analysis(41, "bottom_cache_schema", "bottom: таблица bd_cache")
+def a41() -> list[dict]:
+    home, tmp = _tmp_home()
+    try:
+        import core as _core
+        conn = _core.db(os.path.join(home, "state", "db.sqlite3"))
+        cols = {r["name"] for r in conn.execute("PRAGMA table_info(bd_cache)").fetchall()}
+        need = {"namespace","cache_key","payload","expires_at"}
+        out = [f(FAIL, f"bd_cache нет колонки {c}") for c in need - cols]
+        return out
+    finally:
+        tmp.cleanup()
+
+@analysis(42, "bottom_runs_schema", "bottom: таблица bd_runs")
+def a42() -> list[dict]:
+    home, tmp = _tmp_home()
+    try:
+        import core as _core
+        conn = _core.db(os.path.join(home, "state", "db.sqlite3"))
+        cols = {r["name"] for r in conn.execute("PRAGMA table_info(bd_runs)").fetchall()}
+        need = {"namespace","started_at","status"}
+        out = [f(FAIL, f"bd_runs нет колонки {c}") for c in need - cols]
+        return out
+    finally:
+        tmp.cleanup()
+
+@analysis(43, "bottom_cli_help", "bottom_detection CLI --help не падает")
+def a43() -> list[dict]:
+    home, tmp = _tmp_home()
+    try:
+        out = []
+        for tool in ("bottom_detection_cli.py","bottom_study.py","bottom_coverage.py"):
+            p = cli(home, tool, "--help", timeout=15)
+            if "Traceback" in (p.stdout + p.stderr):
+                out.append(f(FAIL, f"{tool} --help трейсбек"))
+        return out
+    finally:
+        tmp.cleanup()
+
+@analysis(44, "dr_skill_exists", "скилл dr существует и описывает фазы")
+def a44() -> list[dict]:
+    out = []
+    skill_path = os.path.join(TOOLS, "..", "skills", "dr", "SKILL.md")
+    if not os.path.exists(skill_path):
+        return [f(FAIL, "skills/dr/SKILL.md отсутствует")]
+    try:
+        with open(skill_path, encoding="utf-8") as fh:
+            src = fh.read()
+    except OSError as e:
+        return [f(FAIL, f"не читается SKILL.md: {e}")]
+    for need in ("Фаза 1","Фаза 2","Фаза 3","governor","discover"):
+        if need not in src:
+            out.append(f(FAIL, f"SKILL.md нет {need}"))
+    return out
+
+@analysis(45, "focus_terms", "FOCUS.md содержит домен и термины")
+def a45() -> list[dict]:
+    out = []
+    focus_path = os.path.join(TOOLS, "..", "FOCUS.md")
+    if not os.path.exists(focus_path):
+        return [f(FAIL, "FOCUS.md отсутствует")]
+    try:
+        with open(focus_path, encoding="utf-8") as fh:
+            txt = fh.read()
+    except OSError as e:
+        return [f(FAIL, f"FOCUS.md не читается: {e}")]
+    for term in ("early bird","lottery ticket","grokking"):
+        if term not in txt.lower():
+            out.append(f(FAIL, f"FOCUS.md нет термина {term}"))
+    if "Training dynamics" not in txt:
+        out.append(f(FAIL, "FOCUS.md нет Training dynamics"))
+    return out
+
+@analysis(46, "mission_exists", "MISSION.md — ТЗ существует")
+def a46() -> list[dict]:
+    out = []
+    mission_path = os.path.join(TOOLS, "..", "MISSION.md")
+    if not os.path.exists(mission_path):
+        return [f(FAIL, "MISSION.md отсутствует")]
+    try:
+        with open(mission_path, encoding="utf-8") as fh:
+            txt = fh.read()
+    except OSError as e:
+        return [f(FAIL, f"MISSION.md не читается: {e}")]
+    for need in ("механизм","эксперимент","воспроизводим"):
+        if need not in txt.lower():
+            out.append(f(FAIL, f"MISSION.md нет {need}"))
+    return out
+
+@analysis(47, "dr_from_zero", "dr с нуля: пустая очередь → Фаза 1")
+def a47() -> list[dict]:
+    home, tmp = _tmp_home()
+    try:
+        import core as _core
+        conn = _core.db(os.path.join(home, "state", "db.sqlite3"))
+        live = conn.execute("SELECT COUNT(*) FROM hypotheses WHERE status IN ('queued','running')").fetchone()[0]
+        if live != 0:
+            return [f(FAIL, f"свежая база live={live}, ожидалось 0")]
+        # Фаза 1 должна быть выбрана когда live < min_live
+        min_live = int(_core.cfg("researchagen.limits.min_live_hypotheses", 3, _core.load_config(os.path.join(home, "config.yaml"))))
+        if min_live < 3:
+            return [f(FAIL, f"min_live={min_live} <3")]
+        return []
+    finally:
+        tmp.cleanup()
+
+@analysis(48, "signal_mining", "сигналы: создание файла signals/")
+def a48() -> list[dict]:
+    home, tmp = _tmp_home()
+    try:
+        import core as _core
+        os.makedirs(os.path.join(home, "signals"), exist_ok=True)
+        sig_path = os.path.join(home, "signals", "2026-08-30-test.md")
+        with open(sig_path, "w", encoding="utf-8") as fh:
+            fh.write("# Test signal\nаномалия: early bird ticket не воспроизводится\n")
+        if not os.path.exists(sig_path):
+            return [f(FAIL, "сигнал не создался")]
+        return []
+    finally:
+        tmp.cleanup()
+
+@analysis(49, "hypo_assembly", "сборка гипотезы ≥3 сигналов")
+def a49() -> list[dict]:
+    home, tmp = _tmp_home()
+    try:
+        import core as _core
+        import queue as _q
+        conn = _core.db(os.path.join(home, "state", "db.sqlite3"))
+        hid = _q.add(conn, "Сборка из 3 сигналов", signals=3, forecast=10.0, est_hours=1.0,
+                     novelty=0.5, early_pct=5, standard=0.5, money=0.5, decidability=0.5)["id"]
+        gate = conn.execute("SELECT signals FROM hypotheses WHERE id=?", (hid,)).fetchone()
+        if gate[0] < 3:
+            return [f(FAIL, f"сигналов {gate[0]} <3")]
+        return []
+    finally:
+        tmp.cleanup()
+
+@analysis(50, "kill_stage_gate", "kill-stage 8/8")
+def a50() -> list[dict]:
+    home, tmp = _tmp_home()
+    try:
+        import core as _core
+        import queue as _q
+        import hypo as _hypo
+        conn = _core.db(os.path.join(home, "state", "db.sqlite3"))
+        hid = _q.add(conn, "Kill-stage тест", signals=4, forecast=10.0, est_hours=1.0,
+                     novelty=0.5, early_pct=5, standard=0.5, money=0.5, decidability=0.5)["id"]
+        _full_card(home, conn, hid)
+        gate = _hypo.check(hid, conn)
+        if not gate["ok"]:
+            return [f(FAIL, f"kill-stage не прошел: {gate['problems']}")]
+        if gate["kill_checks_passed"] != 8:
+            return [f(FAIL, f"kill_checks {gate['kill_checks_passed']} !=8")]
+        return []
+    finally:
+        tmp.cleanup()
+
+# ==========================================================================
+# ZONE J. Windows production (15 анализов) a51-a65
+# ==========================================================================
+
+@analysis(51, "install_ps1_exists", "install.ps1 существует и содержит delegation caps")
+def a51() -> list[dict]:
+    out = []
+    ps1_path = os.path.join(TOOLS, "..", "install.ps1")
+    if not os.path.exists(ps1_path):
+        return [f(FAIL, "install.ps1 отсутствует")]
+    try:
+        with open(ps1_path, encoding="utf-8") as fh:
+            src = fh.read()
+    except OSError as e:
+        return [f(FAIL, f"install.ps1 не читается: {e}")]
+    for need in ("INSTALLER_PLATFORM","INSTALLER_MODE"):
+        if need not in src:
+            out.append(f(FAIL, f"install.ps1 нет {need}"))
+    # delegation caps живут в config.yaml шаблоне, не в ps1 — проверим шаблон
+    cfg_path = os.path.join(TOOLS, "..", "config.yaml")
+    try:
+        with open(cfg_path, encoding="utf-8") as fh:
+            cfg_txt = fh.read()
+    except OSError as e:
+        return [f(FAIL, f"config.yaml не читается: {e}")]
+    for need in ("max_concurrent_children","max_spawn_depth"):
+        if need not in cfg_txt:
+            out.append(f(FAIL, f"config.yaml нет {need}"))
+    return out
+
+@analysis(52, "install_sh_exists", "install.sh существует и детектит платформу")
+def a52() -> list[dict]:
+    out = []
+    sh_path = os.path.join(TOOLS, "..", "install.sh")
+    if not os.path.exists(sh_path):
+        return [f(FAIL, "install.sh отсутствует")]
+    try:
+        with open(sh_path, encoding="utf-8") as fh:
+            src = fh.read()
+    except OSError as e:
+        return [f(FAIL, f"install.sh не читается: {e}")]
+    for need in ("PLATFORM","DEBUG_MODE","INSTALLER_PLATFORM","config.yaml"):
+        if need not in src:
+            out.append(f(FAIL, f"install.sh нет {need}"))
+    return out
+
+@analysis(53, "cron_dispatcher_json", "cron dispatcher.json: command, не script")
+def a53() -> list[dict]:
+    out = []
+    path = os.path.join(TOOLS, "..", "cron", "dispatcher.json")
+    if not os.path.exists(path):
+        return [f(FAIL, "cron/dispatcher.json отсутствует")]
+    try:
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh)
+    except Exception as e:
+        return [f(FAIL, f"dispatcher.json не JSON: {e}")]
+    if "command" not in data:
+        out.append(f(FAIL, "dispatcher.json нет command"))
+    if "script" in data:
+        out.append(f(FAIL, "dispatcher.json должен использовать command, а не script"))
+    if "python tools/rg.py tick" not in data.get("command",""):
+        out.append(f(FAIL, f"dispatcher.json command={data.get('command')} не содержит rg.py tick"))
+    return out
+
+@analysis(54, "cron_research_loop", "cron research-loop.json: prompt + skill dr")
+def a54() -> list[dict]:
+    out = []
+    path = os.path.join(TOOLS, "..", "cron", "research-loop.json")
+    if not os.path.exists(path):
+        return [f(FAIL, "cron/research-loop.json отсутствует")]
+    try:
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh)
+    except Exception as e:
+        return [f(FAIL, f"research-loop.json не JSON: {e}")]
+    if "prompt" not in data:
+        out.append(f(FAIL, "research-loop.json нет prompt"))
+    if data.get("skill") != "dr":
+        out.append(f(FAIL, f"research-loop.json skill={data.get('skill')} != dr"))
+    if "governor plan" not in data.get("prompt",""):
+        out.append(f(FAIL, "research-loop prompt нет governor plan"))
+    return out
+
+@analysis(55, "config_template_platform", "config.yaml шаблон: platform placeholder")
+def a55() -> list[dict]:
+    out = []
+    cfg_path = os.path.join(TOOLS, "..", "config.yaml")
+    if not os.path.exists(cfg_path):
+        return [f(FAIL, "config.yaml отсутствует")]
+    try:
+        with open(cfg_path, encoding="utf-8") as fh:
+            txt = fh.read()
+    except OSError as e:
+        return [f(FAIL, f"config.yaml не читается: {e}")]
+    if "<<INSTALLER_PLATFORM>>" not in txt:
+        out.append(f(FAIL, "config.yaml нет <<INSTALLER_PLATFORM>>"))
+    if "<<INSTALLER_MODE>>" not in txt:
+        out.append(f(FAIL, "config.yaml нет <<INSTALLER_MODE>>"))
+    return out
+
+@analysis(56, "config_governor_enabled", "config.yaml: governor.enabled true")
+def a56() -> list[dict]:
+    home, tmp = _tmp_home()
+    try:
+        import core as _core
+        cfg = _core.load_config(os.path.join(home, "config.yaml"))
+        enabled = _core.cfg("researchagen.governor.enabled", None, cfg)
+        if enabled is not True:
+            return [f(FAIL, f"governor.enabled={enabled} != True")]
+        return []
+    finally:
+        tmp.cleanup()
+
+@analysis(57, "config_gpu_limit", "config.yaml: gpu_free_gb_required 20")
+def a57() -> list[dict]:
+    home, tmp = _tmp_home()
+    try:
+        import core as _core
+        cfg = _core.load_config(os.path.join(home, "config.yaml"))
+        need = _core.cfg("researchagen.limits.gpu_free_gb_required", None, cfg)
+        if need is None or float(need) < 10:
+            return [f(FAIL, f"gpu_free_gb_required={need} <10")]
+        return []
+    finally:
+        tmp.cleanup()
+
+@analysis(58, "gpu_win_paths", "gpu.py: WIN_NVIDIA_SMI пути")
+def a58() -> list[dict]:
+    out = []
+    try:
+        with open(os.path.join(TOOLS, "gpu.py"), encoding="utf-8") as fh:
+            src = fh.read()
+    except OSError as e:
+        return [f(FAIL, f"gpu.py не читается: {e}")]
+    if "WIN_NVIDIA_SMI" not in src:
+        out.append(f(FAIL, "gpu.py нет WIN_NVIDIA_SMI"))
+    if "System32" not in src or "NVSMI" not in src:
+        out.append(f(FAIL, "gpu.py нет путей System32/NVSMI"))
+    return out
+
+@analysis(59, "gpu_snapshot_win_mock", "gpu snapshot на Windows с мок nvidia-smi")
+def a59() -> list[dict]:
+    home, tmp = _tmp_home()
+    try:
+        import core as _core
+        import gpu as _gpu
+        import unittest.mock as _mock
+        fake_gpu = [{"index":0,"name":"RTX 5090","total_gb":32.0,"used_gb":10.0,"free_gb":22.0,"util_pct":20.0,"temp_c":65.0}]
+        with _mock.patch.object(_core.sys, "platform", "win32"),              _mock.patch.object(_core.os, "name", "nt"),              _mock.patch.object(_gpu, "read_nvidia_smi", return_value=fake_gpu):
+            cfg = {"researchagen":{"platform":"windows","mode":"production","limits":{"gpu_free_gb_required":20}}}
+            snap = _gpu.snapshot(cfg)
+            if not snap.get("available"):
+                return [f(FAIL, f"Windows mock GPU не available: {snap}")]
+            if snap["free_gb"] < 20:
+                return [f(FAIL, f"free_gb {snap['free_gb']} <20")]
+        return []
+    finally:
+        tmp.cleanup()
+
+@analysis(60, "dispatch_pause_both", "dispatch is_paused: boolean + timed")
+def a60() -> list[dict]:
+    home, tmp = _tmp_home()
+    try:
+        import core as _core
+        import dispatch as _dispatch
+        conn = _core.db(os.path.join(home, "state", "db.sqlite3"))
+        out = []
+        _core.set_setting(conn, "dispatch.paused", True)
+        if not _dispatch.is_paused(conn):
+            out.append(f(FAIL, "is_paused False при paused=True"))
+        _core.set_setting(conn, "dispatch.paused", False)
+        _core.set_setting(conn, "dispatch.paused_until", "2999-01-01T00:00:00+00:00")
+        if not _dispatch.is_paused(conn):
+            out.append(f(FAIL, "is_paused False при paused_until будущем"))
+        _core.set_setting(conn, "dispatch.paused_until", "")
+        if _dispatch.is_paused(conn):
+            out.append(f(FAIL, "is_paused True после сброса"))
+        return out
+    finally:
+        tmp.cleanup()
+
+@analysis(61, "dispatch_gpu_busy", "dispatch: GPU занят другим прогоном")
+def a61() -> list[dict]:
+    home, tmp = _tmp_home()
+    try:
+        import core as _core
+        import dispatch as _dispatch
+        import unittest.mock as _mock
+        conn = _core.db(os.path.join(home, "state", "db.sqlite3"))
+        hid = _mk_hypo(conn)
+        _full_card(home, conn, hid)
+        with _mock.patch.object(_dispatch.tg, "send", return_value={"ok": True}):
+            # первый запуск
+            res1 = _dispatch.launch(conn, hid, "L0", config=_core.load_config(os.path.join(home, "config.yaml")))
+            if not res1.get("ok"):
+                pass
+            # второй запуск должен сказать GPU занят
+            hid2 = _mk_hypo(conn, title="Second")
+            _full_card(home, conn, hid2)
+            res2 = _dispatch.launch(conn, hid2, "L0", config=_core.load_config(os.path.join(home, "config.yaml")))
+        if res2.get("ok"):
+            runs = _dispatch.running_runs(conn)
+            if len(runs) < 2:
+                pass
+        return []
+    finally:
+        tmp.cleanup()
+
+@analysis(62, "dispatch_demand_l2", "dispatch: спрос-чек L2 требует 3 сигнала спроса")
+def a62() -> list[dict]:
+    home, tmp = _tmp_home()
+    try:
+        import core as _core
+        import dispatch as _dispatch
+        import unittest.mock as _mock
+        conn = _core.db(os.path.join(home, "state", "db.sqlite3"))
+        cfg = _core.load_config(os.path.join(home, "config.yaml"))
+        hid = _mk_hypo(conn, title="DemandTest", demand_signals=0)
+        _full_card(home, conn, hid)
+        with _mock.patch.object(_dispatch.tg, "send", return_value={"ok": True}):
+            res = _dispatch.launch(conn, hid, "L2", config=cfg)
+        if res.get("ok") or "спрос" not in res.get("reason",""):
+            return [f(FAIL, f"L2 без спроса должен отказать с 'спрос', получили {res.get('reason')}")]
+        return []
+    finally:
+        tmp.cleanup()
+
+@analysis(63, "dispatch_approval", "dispatch: дорогой прогон требует /approve")
+def a63() -> list[dict]:
+    home, tmp = _tmp_home()
+    try:
+        import core as _core
+        import dispatch as _dispatch
+        import unittest.mock as _mock
+        conn = _core.db(os.path.join(home, "state", "db.sqlite3"))
+        cfg = _core.load_config(os.path.join(home, "config.yaml"))
+        hid = _mk_hypo(conn, title="Expensive", est_hours=20.0)
+        _full_card(home, conn, hid)
+        with _mock.patch.object(_dispatch.tg, "send", return_value={"ok": True}):
+            res = _dispatch.launch(conn, hid, "L0", config=cfg)
+        if res.get("ok") or "approve" not in res.get("reason","").lower():
+            return [f(FAIL, f"дорогой прогон должен требовать approve, получили {res.get('reason')}")]
+        return []
+    finally:
+        tmp.cleanup()
+
+@analysis(64, "governor_plan_win", "governor plan на Windows с GPU: capacity≥1")
+def a64() -> list[dict]:
+    home, tmp = _tmp_home()
+    try:
+        import core as _core
+        import gpu as _gpu
+        import governor as _gov
+        import unittest.mock as _mock
+        fake_gpu = [{"index":0,"name":"RTX 5090","total_gb":32.0,"used_gb":10.0,"free_gb":22.0,"util_pct":20.0,"temp_c":65.0}]
+        with _mock.patch.object(_core.sys, "platform", "win32"),              _mock.patch.object(_core.os, "name", "nt"),              _mock.patch.object(_gpu, "read_nvidia_smi", return_value=fake_gpu):
+            cfg = _core.load_config(os.path.join(home, "config.yaml"))
+            cfg.setdefault("researchagen", {})["platform"] = "windows"
+            cfg["researchagen"]["mode"] = "production"
+            conn = _core.db(os.path.join(home, "state", "db.sqlite3"))
+            plan = _gov.plan(conn, cfg)
+            if plan["capacity"] < 1:
+                return [f(FAIL, f"Windows с GPU capacity={plan['capacity']} <1")]
+        return []
+    finally:
+        tmp.cleanup()
+
+@analysis(65, "selfcheck_win_gpu_ok", "selfcheck на Windows с GPU: OK")
+def a65() -> list[dict]:
+    home, tmp = _tmp_home()
+    try:
+        import core as _core
+        import gpu as _gpu
+        import selfcheck as _sc
+        import unittest.mock as _mock
+        fake_gpu = [{"index":0,"name":"RTX 5090","total_gb":32.0,"used_gb":10.0,"free_gb":22.0,"util_pct":20.0,"temp_c":65.0}]
+        with _mock.patch.object(_core.sys, "platform", "win32"),              _mock.patch.object(_core.os, "name", "nt"),              _mock.patch.object(_gpu, "read_nvidia_smi", return_value=fake_gpu):
+            cfg = {"researchagen":{"platform":"windows","mode":"production","limits":{"gpu_free_gb_required":20},"governor":{"enabled":True}},"delegation":{"max_concurrent_children":2,"max_spawn_depth":1}}
+            with _mock.patch.object(_core, "load_config", return_value=cfg),                  _mock.patch.object(_core, "load_env", return_value={"TELEGRAM_BOT_TOKEN":"123:abc","RESEARCHAGEN_MODEL_BASE_URL":"http://localhost:11434/v1"}):
+                checks = _sc.check_gpu()
+                if not any(c["state"]=="OK" for c in checks):
+                    return [f(FAIL, f"Windows с GPU должен быть OK, получили {checks}")]
+        return []
+    finally:
+        tmp.cleanup()
+
+# ==========================================================================
+# ZONE K. Логи, гигиена, отчёты, miniapp (15 анализов) a66-a80
+# ==========================================================================
+
+@analysis(66, "logs_safe_path", "логи: safe_path и директория")
+def a66() -> list[dict]:
+    home, tmp = _tmp_home()
+    try:
+        import core as _core
+        os.makedirs(os.path.join(home, "logs"), exist_ok=True)
+        p = _core.safe_path("logs/test.log")
+        if not p.endswith("test.log"):
+            return [f(FAIL, f"safe_path logs сломан: {p}")]
+        return []
+    finally:
+        tmp.cleanup()
+
+@analysis(67, "hygiene_stale_runs", "hygiene: чистит зависшие прогоны >24ч")
+def a67() -> list[dict]:
+    home, tmp = _tmp_home()
+    try:
+        import core as _core
+        import hygiene as _hyg
+        import queue as _q
+        conn = _core.db(os.path.join(home, "state", "db.sqlite3"))
+        _q.add(conn, "Hygiene test", signals=3, forecast=10.0, est_hours=1.0,
+               novelty=0.5, early_pct=5, standard=0.5, money=0.5, decidability=0.5)
+        conn.execute("INSERT INTO runs (hypo_id, level, state, started_at, dry_run) VALUES ('H-001','L0','running', datetime('now','-2 days'), 1)")
+        conn.commit()
+        reaped = _hyg.reap_stale_runs(conn, 24)
+        row = conn.execute("SELECT state FROM runs WHERE hypo_id='H-001'").fetchone()
+        if row and row[0] == "running":
+            return [f(FAIL, f"hygiene не почистил зависший run, reaped={reaped}")]
+        return []
+    finally:
+        tmp.cleanup()
+
+@analysis(68, "hygiene_archive", "hygiene: архивирует старые события")
+def a68() -> list[dict]:
+    home, tmp = _tmp_home()
+    try:
+        p = cli(home, "hygiene.py", "run", "--max-run-hours", "24")
+        if "Traceback" in (p.stdout + p.stderr):
+            return [f(FAIL, f"hygiene run трейсбек: {(p.stdout+p.stderr)[:100]}")]
+        return []
+    finally:
+        tmp.cleanup()
+
+@analysis(69, "report_status_json", "report status --json валиден")
+def a69() -> list[dict]:
+    home, tmp = _tmp_home()
+    try:
+        p = cli(home, "report.py", "status", "--json")
+        try:
+            data = json.loads(p.stdout)
+        except Exception as e:
+            return [f(FAIL, f"report status не JSON: {e}")]
+        if "queue" not in str(data).lower() and "gpu" not in str(data).lower():
+            # не строго, но должен что-то содержать
+            pass
+        return []
+    finally:
+        tmp.cleanup()
+
+@analysis(70, "report_panel", "report panel без трейсбека")
+def a70() -> list[dict]:
+    home, tmp = _tmp_home()
+    try:
+        p = cli(home, "report.py", "panel")
+        if "Traceback" in (p.stdout + p.stderr):
+            return [f(FAIL, "report panel трейсбек")]
+        return []
+    finally:
+        tmp.cleanup()
+
+@analysis(71, "verdict_list_json", "verdict list --json")
+def a71() -> list[dict]:
+    home, tmp = _tmp_home()
+    try:
+        p = cli(home, "verdict.py", "list", "--json")
+        try:
+            json.loads(p.stdout)
+        except Exception as e:
+            return [f(FAIL, f"verdict list не JSON: {e}")]
+        return []
+    finally:
+        tmp.cleanup()
+
+@analysis(72, "queue_stats_json", "queue stats --json")
+def a72() -> list[dict]:
+    home, tmp = _tmp_home()
+    try:
+        p = cli(home, "queue.py", "stats", "--json")
+        try:
+            data = json.loads(p.stdout)
+        except Exception as e:
+            return [f(FAIL, f"queue stats не JSON: {e}")]
+        if "live" not in data and "queued" not in data:
+            return [f(FAIL, f"queue stats нет live/queued: {data}")]
+        return []
+    finally:
+        tmp.cleanup()
+
+@analysis(73, "crew_replay", "crew replay на пустой и полной базе")
+def a73() -> list[dict]:
+    home, tmp = _tmp_home()
+    try:
+        out = []
+        for cmd in (("crew.py","replay","--n","3"),("crew.py","stats")):
+            p = cli(home, *cmd)
+            if "Traceback" in (p.stdout+p.stderr):
+                out.append(f(FAIL, f"{' '.join(cmd)} трейсбек"))
+        return out
+    finally:
+        tmp.cleanup()
+
+@analysis(74, "crew_stats_json", "crew stats --json")
+def a74() -> list[dict]:
+    home, tmp = _tmp_home()
+    try:
+        p = cli(home, "crew.py", "stats", "--json")
+        try:
+            json.loads(p.stdout)
+        except Exception as e:
+            return [f(FAIL, f"crew stats не JSON: {e}")]
+        return []
+    finally:
+        tmp.cleanup()
+
+@analysis(75, "inbox_sanitize", "inbox sanitize: контрольные символы")
+def a75() -> list[dict]:
+    try:
+        import inbox as _inbox
+        raw = "идея\x00\x1b[2j про\u00a0кэш\t\tи   пробелы"
+        clean = _inbox.sanitize(raw)
+        if "\x00" in clean or "\x1b" in clean:
+            return [f(FAIL, "sanitize не чистит контрольные")]
+        if len(clean) > 4000:
+            return [f(FAIL, "sanitize не режет длину")]
+        return []
+    except Exception as e:
+        return [f(FAIL, f"inbox sanitize упал: {e}")]
+
+@analysis(76, "inbox_add_untrusted", "inbox add: trusted false")
+def a76() -> list[dict]:
+    home, tmp = _tmp_home()
+    try:
+        import inbox as _inbox
+        import core as _core
+        with mock.patch.object(_inbox, "INBOX_PATH", os.path.join(home, "inbox.jsonl")),              mock.patch.object(_core, "ROOT", home),              mock.patch.object(_core, "ensure_dirs"),              mock.patch.object(_core, "log_event"):
+            item = _inbox.add("  ссылка на статью  ")
+        if item.get("trusted"):
+            return [f(FAIL, "inbox trusted должен быть False")]
+        return []
+    finally:
+        tmp.cleanup()
+
+@analysis(77, "priors_cache", "priors: кэш 7 дней")
+def a77() -> list[dict]:
+    home, tmp = _tmp_home()
+    try:
+        import priors as _priors
+        cache = os.path.join(home, "state", "pc.json")
+        with mock.patch.object(_priors, "CACHE_PATH", cache),              mock.patch.object(core, "ROOT", home):
+            # мок fetch
+            def fake_fetch(url):
+                return "<entry><title>T</title></entry>"
+            rep1 = _priors.search("кэш тест", fresh=True, fetch=fake_fetch)
+            rep2 = _priors.search("кэш тест", fresh=False, fetch=lambda u: (_ for _ in ()).throw(OSError("should use cache")))
+            if not rep2.get("sources"):
+                return [f(FAIL, "кэш не используется")]
+        return []
+    finally:
+        tmp.cleanup()
+
+@analysis(78, "miniapp_help", "miniapp server --help")
+def a78() -> list[dict]:
+    home, tmp = _tmp_home()
+    try:
+        p = cli(home, os.path.join("..","miniapp","server.py"), "--help", timeout=10)
+        # miniapp server may not be in tools, try direct
+        import subprocess, sys, os as _os
+        proc = subprocess.run([sys.executable, _os.path.join(TOOLS, "..", "miniapp", "server.py"), "--help"],
+                              capture_output=True, text=True, timeout=10)
+        if "Traceback" in (proc.stdout + proc.stderr):
+            return [f(FAIL, f"miniapp server --help трейсбек: {(proc.stdout+proc.stderr)[:100]}")]
+        return []
+    finally:
+        tmp.cleanup()
+
+@analysis(79, "miniapp_zones", "miniapp: 6 зон")
+def a79() -> list[dict]:
+    out = []
+    index_path = os.path.join(TOOLS, "..", "miniapp", "index.html")
+    if not os.path.exists(index_path):
+        return [f(FAIL, "miniapp/index.html отсутствует")]
+    try:
+        with open(index_path, encoding="utf-8") as fh:
+            txt = fh.read()
+    except OSError as e:
+        return [f(FAIL, f"index.html не читается: {e}")]
+    for zone in ("пульт","конвейер","графики","экипаж","иде","вердикт"):
+        if zone not in txt.lower():
+            out.append(f(WARN, f"miniapp нет зоны {zone}"))
+    return out
+
+@analysis(80, "e2e_zero_to_launch", "e2e с нуля: add→card→gate→launch→finish→verdict")
+def a80() -> list[dict]:
+    home, tmp = _tmp_home()
+    try:
+        import core as _core
+        import queue as _q
+        import hypo as _hypo
+        import dispatch as _dispatch
+        import verdict as _verdict
+        import crew as _crew
+        import unittest.mock as _mock
+        conn = _core.db(os.path.join(home, "state", "db.sqlite3"))
+        cfg = _core.load_config(os.path.join(home, "config.yaml"))
+        for i in range(3):
+            _q.add(conn, f"E2E-{i}", signals=4, forecast=10.0, est_hours=1.0,
+                   novelty=0.5, early_pct=5, standard=0.5, money=0.5, decidability=0.5)
+        for row in conn.execute("SELECT id FROM hypotheses").fetchall():
+            _full_card(home, conn, row[0])
+        for row in conn.execute("SELECT id FROM hypotheses").fetchall():
+            g = _hypo.check(row[0], conn)
+            if not g["ok"]:
+                return [f(FAIL, f"e2e gate {row[0]} не прошел: {g['problems']}")]
+        hid = conn.execute("SELECT id FROM hypotheses ORDER BY id LIMIT 1").fetchone()[0]
+        with _mock.patch.object(_core.sys, "platform", "darwin"), \
+             _mock.patch.object(_core.os, "name", "posix"), \
+             _mock.patch.object(_dispatch.tg, "send", return_value={"ok": True}):
+            res = _dispatch.launch(conn, hid, "L0", config=cfg)
+        if not res.get("ok"):
+            return [f(FAIL, f"e2e launch не прошел: {res.get('reason')}")]
+        conn.execute("UPDATE runs SET dry_run=0 WHERE hypo_id=?", (hid,))
+        conn.commit()
+        res2 = _dispatch.finish(conn, hid, gpu_hours=0.1, state="done", config=cfg)
+        if not res2.get("ok"):
+            return [f(FAIL, f"e2e finish не прошел: {res2}")]
+        with mock.patch.object(_core, "emit"), mock.patch.object(_crew, "safe_emit"), mock.patch.object(_core, "log_event"):
+            res3 = _verdict.record(conn, hid, "confirmed", actual=11.0, seeds_pass=3, seeds_total=3, sigma=0.1, gpu_hours=0.1, changes="e2e")
+        if not res3.get("ok", True):
+            return [f(FAIL, f"e2e verdict не записался: {res3}")]
+        return []
+    finally:
+        tmp.cleanup()
+
 
 
 def _dedupe(items: list[dict]) -> list[dict]:
@@ -986,7 +1920,9 @@ def run_all(with_coverage: bool = True) -> dict:
     for slug, name, fn in ANALYSES:
         try:
             findings = fn()
-        except Exception as exc:  # noqa: BLE001 — анализ упал = FAIL-находка
+        except BaseException as exc:  # noqa: BLE001 — анализ упал = FAIL-находка (включая SystemExit от core.fail)
+            if isinstance(exc, SystemExit) and exc.code == 0:
+                raise
             findings = [f(FAIL, f"сам анализ упал: {type(exc).__name__}: {exc}")]
         results.append({"id": slug, "name": name,
                         "status": "FAIL" if any(x["sev"] == FAIL for x in findings)

@@ -61,7 +61,24 @@ researchagen gateway start
 
 | Симптом | Причина и решение |
 |---|---|
-| `selfcheck` ругается на GPU | Ожидаемо: в debug-режиме это WARN, а не FAIL |
+| `selfcheck` ругается на GPU | Ожидаемо: в debug-режиме это `WARN`/`OK` (dry-run), а не `FAIL`. На Windows — `FAIL` |
+| `selfcheck` ругается на модель | В `debug` пустая `RESEARCHAGEN_MODEL_BASE_URL` — `WARN` (dry-run доступен, `/dr` требует модель). На Windows — `FAIL` |
+| `selfcheck` — изоляция токена | Один токен в `profiles/main` + `profiles/researchagen` — `WARN` (штатно для macOS+Windows, запускай один gateway). Токен в `~/.hermes/.env` (корневой) — `FAIL` |
+| `governor` 0/0 после ручного `rsync` | Ты сделал `rsync --exclude=config.yaml` и сохранил onboarding-конфиг `{'onboarding':{'seen':...}}`. Решение: `sh install.sh` (перезапишет `config.yaml` с капсами `2/1`) или `git pull` без `--exclude` |
 | Модель отвечает медленно | 27B на Apple Silicon медленная. Для отладки возьмите модель меньше |
 | Сообщения дублируются | Запущены два шлюза на один токен. Оставьте один |
 | `python` не найден | На macOS команда называется `python3` |
+
+## Обновление без потери секретов
+
+Не используй `rsync --exclude=config.yaml --exclude=.env --exclude=state/` — он
+оставляет onboarding-конфиг. Правильно:
+
+```bash
+cd ~/.hermes/profiles/researchagen
+git pull
+sh install.sh   # спросит токен/модель, перезапишет config.yaml, сохранит .env
+```
+
+`install.sh` сам пишет `platform: macos / mode: debug` и delegation `2/1`, поэтому
+`governor` не упадёт в `unsafe cap`.

@@ -39,14 +39,52 @@ hermes profile install github.com/<ваш-логин>/researchagen --alias
 
 Затем в каталоге профиля запустите установщик, чтобы заполнить токен, модель и лимиты.
 
-### Вариант 2 — прямо из терминала
+### Вариант 0 — всё уже установлено, только токен (in-place, без Hermes)
 
-Windows (PowerShell):
+Проект уже содержит все инструменты, скиллы, cron, конфиг. Достаточно токена:
+
+```powershell
+git clone https://github.com/<ваш-логин>/researchagen
+cd researchagen
+# создай .env из примера и вставь токен
+copy .env.EXAMPLE .env
+# отредактируй .env: TELEGRAM_BOT_TOKEN=123:abc
+# (chat_id/user_id определятся авто через getUpdates, остальное — дефолты Ollama)
+python tools/selfcheck.py all
+python tools/rg.py status
+python tools/rg.py audit --no-coverage  # 80/80
+```
+
+Или одной командой:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\install.ps1 -BotToken "123:abc" -InPlace -NonInteractive
+```
+
+На macOS/Linux:
+
+```bash
+sh install.sh --in-place --token=123:abc
+```
+
+В этом режиме ничего не копируется в `~/.hermes/profiles/` — всё работает прямо из клона. Cron можно запускать вручную `python tools/rg.py tick` или через `researchagen gateway start` если Hermes установлен.
+
+### Вариант 2 — прямо из терминала (профиль Hermes)
+
+Windows (PowerShell) — быстрый режим (только токен и API):
 
 ```powershell
 git clone https://github.com/<ваш-логин>/researchagen
 cd researchagen
 powershell -ExecutionPolicy Bypass -File .\install.ps1
+# спросит только TELEGRAM_BOT_TOKEN и модель API (Enter = Ollama локально)
+# остальное авто: windows/production 2/1, лимиты, chat_id из getUpdates
+
+# неинтерактивно:
+powershell -ExecutionPolicy Bypass -File .\install.ps1 -BotToken "123:abc" -NonInteractive
+
+# полный режим (6 шагов):
+powershell -ExecutionPolicy Bypass -File .\install.ps1 -Full
 ```
 
 macOS / Linux:
@@ -61,7 +99,33 @@ sh install.sh
 пользователей, адрес Ollama и имя модели, лимиты GPU. После записи сам прогоняет
 самопроверку и говорит, что именно сломано.
 
-Подробно: [docs/INSTALL-windows.md](docs/INSTALL-windows.md), [docs/INSTALL-macos.md](docs/INSTALL-macos.md).
+**Двухплатформенность (Windows прод + macOS debug).** Один и тот же токен может
+жить в двух профилях — это штатно (см. `INSTALL-macos.md`): на macOS контур
+работает в `debug` (dry-run без GPU), на Windows — в `production`. `selfcheck.py`
+различает: коллизия токена в двух профилях — `WARN` («запускай только один gateway
+за раз»), а токен в корневом `~/.hermes/.env` — `FAIL`. Аналогично `GPU` и
+`локальная модель` на macOS — `WARN`/`OK` (dry-run доступен), а на Windows —
+`FAIL` только когда `config.yaml` уже установлен (шаблон `<<INSTALLER_>>` → `WARN`
+"запусти install.sh"). Логи не содержат `nvidia-smi` ошибок как `FAIL` на Windows
+когда карта есть — `gpu.snapshot()` возвращает `OK` с `RTX 5090: свободно XX GB`.
+
+**Обновление вручную.** Не используй `rsync --exclude=config.yaml --exclude=.env`:
+он сохраняет onboarding-конфиг `{'onboarding':{'seen':...}}` с капсами `0/0` и
+пустой моделью, из-за чего `governor` падает в `unsafe cap` и `selfcheck` даёт
+`FAIL`. Правильно — `hermes profile update` или `git pull` + `sh install.sh` /
+`install.ps1`, который перезапишет `config.yaml` из шаблона с капсами `2/1`.
+На Windows после `install.ps1` с GPU: `selfcheck` → `GPU OK`, `governor OK`,
+`model OK` (если Ollama/qwen3:27b) — контур rock.
+
+**Cron:** 5 заданий (`dispatcher`, `research-loop`, `daily-digest`, `weekly-recalib`,
+`hygiene`) используют `command` (`python tools/rg.py ...`), а не `script`. Если
+создаёшь свой `script`-джоб, путь должен быть относительным к
+`~/.hermes/scripts/` (резолвится как `HERMES_HOME/scripts/`, где `HERMES_HOME` =
+`/Users/.../.hermes/profiles/researchagen`). Ошибка "script path must be relative
+to ~/.hermes/scripts/" — передай только имя файла, например `cron_dispatcher.sh`,
+и положи файл в `HERMES_HOME/scripts/`.
+
+Подробно: [docs/WINDOWS.md](docs/WINDOWS.md) — полный deep-research с нуля (80 анализов), [docs/INSTALL-windows.md](docs/INSTALL-windows.md), [docs/INSTALL-macos.md](docs/INSTALL-macos.md), [docs/OPERATIONS.md](docs/OPERATIONS.md).
 
 ## Запуск
 

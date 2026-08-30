@@ -247,7 +247,8 @@ class TestDemandGate(V5Base):
         card = os.path.join(self.tmp.name, f"{hid}.md")
         text = "\n\n".join(f"{sec}: |\n  заполнено" for sec in hypo.REQUIRED_SECTIONS)
         text += "\n\nkill_checks:\n" + "\n".join(["- passed: true"] * 8)
-        open(card, "w", encoding="utf-8").write(text)
+        with open(card, "w", encoding="utf-8") as fh:
+            fh.write(text)
         self.conn.execute("UPDATE hypotheses SET card_path=?, signals=4 WHERE id=?",
                           (card, hid))
         self.conn.commit()
@@ -362,7 +363,8 @@ class TestPatentWeight(V5Base):
                            gpu_hours="1.0", changes="нет")
         os.makedirs(core.REPORTS_DIR, exist_ok=True)
         patent = os.path.join(core.REPORTS_DIR, "patent-H-001.md")
-        open(patent, "w").write("# p")
+        with open(patent, "w", encoding="utf-8") as fh:
+            fh.write("# p")
         try:
             disc = calib.discrimination(self.conn)
             f = calib.q.signal_score

@@ -17,6 +17,16 @@
 
 Список и статус: `hermes cron list`. Отключить: `hermes cron disable <имя>`.
 
+**Важно про пути скриптов:** Hermes требует относительный путь к `~/.hermes/scripts/`
+(резолвится как `HERMES_HOME/scripts/`, где `HERMES_HOME` = профиль, например
+`/Users/.../.hermes/profiles/researchagen`). Наши 5 заданий используют `command`
+(`python tools/rg.py ...`), а не `script`, поэтому относительный путь не нужен.
+`research-loop` — agent-джоб (без скрипта). Если создаёте свой `script`-джоб,
+передавайте только имя файла, например `cron_dispatcher.sh`, и кладите файл в
+`HERMES_HOME/scripts/` (профиль) или `$HOME/.hermes/scripts/` (глобально).
+Ошибка "script path must be relative to ~/.hermes/scripts/" означает, что вы
+передали абсолютный путь — исправьте на относительный.
+
 Если установщик не нашёл `hermes`, задачи не зарегистрированы. Добавьте вручную,
 взяв расписание и команды из файлов `cron/*.json`, и обязательно укажите
 `--workdir` на каталог профиля.
@@ -56,13 +66,19 @@ hermes cron list
 
 ```bash
 python tools/rg.py doctor            # среда: токен, изоляция путей, секреты в логах, права .env
-python tools/rg.py audit             # 30 анализов функционала: ошибки → reports/audit-<дата>.md
+python tools/rg.py audit             # 35 анализов функционала: ошибки → reports/audit-<дата>.md
 python tools/rg.py priors search "тема"   # prior-art по 6 источникам, планка честности 90%
 ```
 
-Doctor дополнительно ловит: тот же токен в двух профилях (второй gateway не
-запустится), токен в логах/чате, права .env ≠ 600. Аудит проверяет и
-документацию: каждая команда и флаг из docs/ обязаны существовать в коде.
+Doctor дополнительно ловит: тот же токен в двух профилях — теперь `WARN`
+(допустимо для macOS+Windows, запускай один gateway) и `FAIL` только для
+корневого `~/.hermes/.env`; токен в логах/чате; права `.env` ≠ 600 (WARN);
+GPU: на macOS debug — `OK`/`WARN` dry-run, на Windows production без
+`nvidia-smi` — `FAIL` (реальная ошибка), а шаблонный `config.yaml` с
+`<<INSTALLER_>>` — `WARN` "запусти install.sh"; модель: `debug` → `WARN`,
+`production` → `FAIL`; governor: onboarding `{'onboarding':...}` → `WARN`,
+а не `0/0` unsafe. Аудит проверяет и документацию: каждая команда и флаг из
+docs/ обязаны существовать в коде. Зона H (a31–a35) — кроссплатформенность.
 
 ### Прогон висит
 
