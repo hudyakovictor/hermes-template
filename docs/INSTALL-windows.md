@@ -29,22 +29,35 @@ ollama run qwen3:27b "привет"   # проверка, что веса жив
 
 Адрес должен заканчиваться на `/v1`: `http://localhost:11434/v1`.
 
-## 3. Установка
+## 3. Установка — быстрый режим (только токен и API)
+
+По умолчанию установщик теперь в быстром режиме: спрашивает **только** токен и API, остальное авто.
 
 ```powershell
 git clone https://github.com/<ваш-логин>/researchagen
 cd researchagen
 powershell -ExecutionPolicy Bypass -File .\install.ps1
+# спросит:
+#   TELEGRAM_BOT_TOKEN (обязательно)
+#   RESEARCHAGEN_MODEL_BASE_URL [http://localhost:11434/v1] — Enter = локальная Ollama
+#   RESEARCHAGEN_MODEL_NAME [qwen3:27b]
+#   RESEARCHAGEN_MODEL_API_KEY [ollama]
+# остальное авто: platform windows, mode production, 2/1, лимиты 6/8/6, chat_id/user_id из getUpdates
+
+# полностью неинтерактивно:
+powershell -ExecutionPolicy Bypass -File .\install.ps1 -BotToken "123:abc" -ModelBase "http://localhost:11434/v1" -NonInteractive
+
+# полный режим (6 шагов как раньше):
+powershell -ExecutionPolicy Bypass -File .\install.ps1 -Full
 ```
 
-Установщик спросит шесть блоков данных: ОС, корень Hermes, Telegram
-(токен / chat_id / thread_id / два user_id), модель, лимиты GPU, подтверждение.
-Ничего не записывается до экрана подтверждения.
+Авто-определение Telegram: установщик зовёт `https://api.telegram.org/bot<token>/getUpdates` и берёт последний `chat.id` и `from.id`. Для этого **заранее** напиши боту `/start` в личку или добавь его в группу и напиши что-нибудь. Если не определилось — ставит `0`, после запуска бот подскажет как обновить `.env`.
 
-Где взять ID:
+Если нужен ручной ввод chat_id/thread_id/user_id — используй `-Full`.
 
-- `chat_id` группы: добавьте бота в группу, напишите сообщение и откройте
-  `getUpdates` в браузере. У супергрупп ID начинается с `-100`.
+Где взять ID вручную (для полного режима):
+
+- `chat_id` группы: добавь бота в группу, напиши сообщение и открой `getUpdates` в браузере. У супергрупп ID начинается с `-100`.
 - `thread_id`: в том же ответе поле `message_thread_id`.
 - `user_id`: там же, `from.id`.
 

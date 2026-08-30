@@ -41,12 +41,20 @@ hermes profile install github.com/<ваш-логин>/researchagen --alias
 
 ### Вариант 2 — прямо из терминала
 
-Windows (PowerShell):
+Windows (PowerShell) — быстрый режим (только токен и API):
 
 ```powershell
 git clone https://github.com/<ваш-логин>/researchagen
 cd researchagen
 powershell -ExecutionPolicy Bypass -File .\install.ps1
+# спросит только TELEGRAM_BOT_TOKEN и модель API (Enter = Ollama локально)
+# остальное авто: windows/production 2/1, лимиты, chat_id из getUpdates
+
+# неинтерактивно:
+powershell -ExecutionPolicy Bypass -File .\install.ps1 -BotToken "123:abc" -NonInteractive
+
+# полный режим (6 шагов):
+powershell -ExecutionPolicy Bypass -File .\install.ps1 -Full
 ```
 
 macOS / Linux:

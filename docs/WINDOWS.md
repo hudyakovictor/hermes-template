@@ -13,7 +13,9 @@
 
 Dual-platform правило: отсутствие данных другой ОС не считается ошибкой. На Windows `production` без `nvidia-smi` — FAIL, на macOS — WARN/OK dry-run.
 
-## 1. Установка с нуля (PowerShell)
+## 1. Установка с нуля (PowerShell) — только токен и API
+
+Теперь быстрый режим по умолчанию: спрашивает **только** `TELEGRAM_BOT_TOKEN` и модель API, остальное авто.
 
 ```powershell
 # предусловия
@@ -22,10 +24,23 @@ ollama --version
 nvidia-smi       # должен показать RTX 5090
 hermes --version
 
-# клон и установка
+# клон и установка — быстрый режим (только токен и API)
 git clone https://github.com/<ваш-логин>/researchagen
 cd researchagen
 powershell -ExecutionPolicy Bypass -File .\install.ps1
+# спросит:
+#   TELEGRAM_BOT_TOKEN (обязательно)
+#   RESEARCHAGEN_MODEL_BASE_URL [http://localhost:11434/v1] (Enter = Ollama)
+#   RESEARCHAGEN_MODEL_NAME [qwen3:27b]
+#   RESEARCHAGEN_MODEL_API_KEY [ollama]
+# остальное: platform=windows, mode=production, лимиты 6/8/6 авто,
+# chat_id/user_id пытается взять из getUpdates (напиши боту /start заранее)
+
+# неинтерактивно (только токен и API):
+powershell -ExecutionPolicy Bypass -File .\install.ps1 -BotToken "123:abc" -ModelBase "http://localhost:11434/v1" -ModelKey "ollama" -NonInteractive
+
+# полный режим как раньше (6 шагов):
+powershell -ExecutionPolicy Bypass -File .\install.ps1 -Full
 ```
 
 `install.ps1` спрашивает 6 блоков (ОС, корень Hermes, Telegram token/chat_id/thread_id/2 user_id, модель, лимиты GPU, подтверждение). До подтверждения ничего не пишет.
