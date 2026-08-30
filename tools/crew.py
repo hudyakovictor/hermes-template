@@ -132,8 +132,8 @@ AGENTS: dict[str, dict] = {
     "krot":    {"name": "Аналитег", "zone": "добыча: синтез сигналов, оценка силы"},
     "morg":    {"name": "Морг",     "zone": "kill-stage: 7 проверок, контраргументы"},
     "gayka":   {"name": "Гайка",    "zone": "эксперименты L0–L3: скрипты, seeds, чекпойнты"},
-    "hronik":  {"name": "Хроник",   "zone": "память: калибровка, архив, патенты, коммерция"},
-    "stazhor": {"name": "iВасёк",   "zone": "inbox, карточки, зачистка замечаний"},
+    "hronik":  {"name": "Хроник",   "zone": "память: научные публикации, прецеденты, калибровка, патенты"},
+    "stazhor": {"name": "iВасёк",   "zone": "inbox, карточки, коммерческий потенциал: покупатель и спрос"},
 }
 
 # Амплуа заданы только таблицей пересечений BANTER ниже: «кто с кем и в каком
@@ -234,6 +234,12 @@ SCENES: dict[str, list[tuple[str, str, list[str]]]] = {
         ("gayka", "work", [
             "критерии перечитала из карточки, не из памяти. всё чисто.",
         ]),
+        ("hronik", "work", [
+            "по публикациям прямого аналога нет — проверил по двум базам. gap держится.",
+        ]),
+        ("stazhor", "work", [
+            "покупателя вписал в карточку, kill №8 закрыт. спрос-сигналы при мне.",
+        ]),
         ("skif", "work", [
             "источники перепроверил вторым проходом. дубликатов нет.",
         ]),
@@ -274,10 +280,19 @@ SCENES: dict[str, list[tuple[str, str, list[str]]]] = {
         ("morg", "work", [
             "пока все смотрите на кривые — черновик заключения уже пишу. на всякий случай, коллеги.",
         ]),
+        ("hronik", "work", [
+            "запуск записал в архив. сверим с вердиктом — прецеденты копятся.",
+        ]),
+        ("stazhor", "work", [
+            "если взлетит — посчитаю экономию для карточки. покупатель любит цифры.",
+        ]),
     ],
     "finish_ok": [
         ("gayka", "work", [
             "прогон чистый: {seeds} seeds, {hours} GPU-ч. ничего не упало 💀",
+        ]),
+        ("stazhor", "work", [
+            "для карточки посчитаю сэкономленные часы скрининга. покупатель любит цифры.",
         ]),
         ("krot", "work", [
             "бро, {seeds} seeds — это минимум по регламенту, а не подвиг.",
@@ -325,6 +340,9 @@ SCENES: dict[str, list[tuple[str, str, list[str]]]] = {
         ("krot", "work", [
             "все внимание сюда: первый реальный кандидат, а не виба.",
         ]),
+        ("stazhor", "work", [
+            "спрос-сигналы проверю: если ожили — покупателю можно писать.",
+        ]),
         ("hronik", "work", [
             "калибровка в плюс. если money держится — патентный кандидат.",
         ]),
@@ -333,6 +351,9 @@ SCENES: dict[str, list[tuple[str, str, list[str]]]] = {
         ]),
     ],
     "verdict_rejected": [
+        ("hronik", "work", [
+            "прецедент — в базу: этот сигнал не живёт. больше не наступим.",
+        ]),
         ("morg", "work", [
             "{hid}: прогноз {forecast}, факт {actual}. отклонение {dev} 😂",
             "{hid}: обещали {forecast}, получили {actual}. ну всё как обычно.",
@@ -357,6 +378,12 @@ SCENES: dict[str, list[tuple[str, str, list[str]]]] = {
         ]),
     ],
     "verdict_partial": [
+        ("hronik", "work", [
+            "зафиксирую границы: эффект есть, но уже, чем обещали. прецедент.",
+        ]),
+        ("stazhor", "work", [
+            "покупателю такое продавать рано. посчитаю, чего не хватает.",
+        ]),
         ("morg", "work", [
             "извещение: эффект есть, но мягче прогноза на {dev}. обещали {forecast}, вышло {actual}.",
         ]),
@@ -368,6 +395,9 @@ SCENES: dict[str, list[tuple[str, str, list[str]]]] = {
         ]),
     ],
     "kill": [
+        ("hronik", "work", [
+            "оформлю: причина, урок, ссылка. могила без эпитафии — потерянные деньги.",
+        ]),
         ("morg", "work", [
             "{hid} снята до GPU. расходы: 0.0 GPU-ч.",
         ]),
@@ -379,6 +409,9 @@ SCENES: dict[str, list[tuple[str, str, list[str]]]] = {
         ]),
     ],
     "queue_empty": [
+        ("hronik", "work", [
+            "в архиве лежат недоразобранные прецеденты. подниму два — очередь не пустая будет.",
+        ]),
         ("shef", "work", [
             "живых гипотез меньше {min}. research идёт, GPU молчит. правило, не настроение.",
         ]),
@@ -427,6 +460,9 @@ SCENES: dict[str, list[tuple[str, str, list[str]]]] = {
         ]),
     ],
     "budget_burn": [
+        ("stazhor", "work", [
+            "за что платим: у половины очереди покупатель так и не назван. я считал.",
+        ]),
         ("shef", "work", [
             "израсходовано {burn}/{budget} GPU-ч за сутки. следующий запуск — завтра.",
         ]),
@@ -504,6 +540,9 @@ SCENES: dict[str, list[tuple[str, str, list[str]]]] = {
         ]),
     ],
     "review_forecast_drift": [
+        ("hronik", "work", [
+            "сдвиг знаю, он в калибровке. веса подправлю на пересчёте.",
+        ]),
         ("shef", "work", [
             "систематический сдвиг прогнозов {bias}. прогнозируем слишком сладко.",
         ]),
@@ -559,6 +598,12 @@ SCENES: dict[str, list[tuple[str, str, list[str]]]] = {
         ]),
     ],
     "idea_intake": [
+        ("stazhor", "work", [
+            "принял в inbox. разложу по карточкам, пустых секций не обещаю… но постараюсь.",
+        ]),
+        ("hronik", "work", [
+            "по публикациям прогоню: вдруг это уже было, и мы сэкономим день.",
+        ]),
         ("krot", "work", [
             "снаружи пришла идея: {title}. сырьё, не приказ — разбираем по-обычному.",
             "новый лид {iid}. сначала источники, потом эмоции.",
@@ -1095,13 +1140,37 @@ def safe_review(conn: sqlite3.Connection | None = None,
 
 # --------------------------------------------------------------------------- рендер
 
+def recent_agent_counts(conn: sqlite3.Connection, window: int = 80) -> dict[str, int]:
+    """Сколько реплик у каждого агента в последних `window` строках чата.
+
+    Основа ротации: при срезе сцены лимитом приоритет у тех, кто давно молчал —
+    иначе поздние блоки (Хроник, iВасёк) вырезаются всегда и агенты немеют.
+    """
+    try:
+        rows = conn.execute(
+            "SELECT agent, COUNT(*) c FROM ("
+            "  SELECT agent FROM crew_chat ORDER BY msg_id DESC LIMIT ?"
+            ") GROUP BY agent", (window,)).fetchall()
+        return {r["agent"]: int(r["c"]) for r in rows}
+    except sqlite3.Error:
+        return {}
+
+
 def render_scene(event: str, ctx: dict, rng: random.Random,
-                 config: dict | None = None, limit: int | None = None) -> list[dict]:
+                 config: dict | None = None, limit: int | None = None,
+                 recent: dict[str, int] | None = None) -> list[dict]:
     blocks = SCENES.get(event)
     if not blocks:
         return []
     if limit is None:
         limit = int(cfg("max_lines_per_event", config))
+    if len(blocks) > limit and recent is not None:
+        # ротация: берём блоки агентов, которые реже звучали в последних
+        # репликах; порядок внутри сцены сохраняем — хореография не ломается
+        prio = sorted(range(len(blocks)),
+                      key=lambda ix: (recent.get(blocks[ix][0], 0), ix))
+        keep = sorted(prio[:limit])
+        blocks = [blocks[ix] for ix in keep]
     lines: list[dict] = []
     for agent, kind, variants in blocks[:limit]:
         template = rng.choice(variants)
@@ -1444,7 +1513,8 @@ def emit(event: str, ctx: dict | None = None, conn: sqlite3.Connection | None = 
     if controversy >= 2:
         limit = min(base_limit, limit + 1 + (1 if controversy >= 5 else 0))
 
-    lines = render_scene(event, ctx, rng, config, limit=limit)
+    lines = render_scene(event, ctx, rng, config, limit=limit,
+                         recent=recent_agent_counts(conn))
 
     # AGI-день: раз в сутки и только если реплики про «мессию» влезают в пул
     if event != "agi_day" and _agi_day_due(conn):
